@@ -1,0 +1,35 @@
+name: chatterdetect
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - scipy
+  - ipython
+  - fastparquet
+  - openpyxl
+  - ipykernel
+  - matplotlib
+  - ipywidgets
+  - jupyterlab
+  - numpy
+  - pandas=2.2.2
+  - plotly
+  - pyarrow
+  - dash
+  - nbformat
+  - seaborn
+  - nbconvert
+  - notebook
+  - scikit-learn
+  - duckdb
+  - python-kaleido
+  - tabulate
+  - python-dotenv
+  - numba
+  - tqdm
+  - conda-forge::pylatexenc
+  - nodejs
+  - voila
+  
+

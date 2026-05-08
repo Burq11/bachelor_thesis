@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+notebooks/2025-05_Oxford_und_Rebecka/Oxford.html
+
+# ---- Environments ----
+.venv/
+venv/
+.env
+.conda/
+.mamba/
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- Data / databases / outputs ----
+*/data/*.duckdb
+*/data/
+*/results/
+*.log
+data/2025-05_Oxford_und_Rebecka/
+
+# ---- tests outputs ----
+tests/tests_equiv
+tests/*
