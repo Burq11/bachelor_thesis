@@ -59,13 +59,23 @@ class DuckDBLoader:
         q = f"SELECT 1 FROM {self.table_name} WHERE {where_sql} LIMIT 1"
         return self.con.execute(q,params).fetchone() is not None
         
-    def _ensure_plate_slot_exists(self, plate: str, slot: Optional[float]) -> None:
+    def _ensure_plate_slot_exists(self, plate: str, slot: Optional[float] = None) -> None:
+        """
+        Validates that the plate exists and optionally that the plate-slot combo exists.
+        
+        Args:
+            plate: The plate identifier
+            slot: Optional slot identifier. If None, only validates plate exists.
+            
+        Raises:
+            DataNotFoundError: If plate or slot doesn't exist
+        """
         if slot is None:
-        # Just validate plate exists
+            # Just validate plate exists
             if not self._exists("Platte = ? AND Platte IS NOT NULL", [plate]):
                 raise DataNotFoundError(f"Unknown plate={plate!r}.")
         else:
-        # Validate both plate and slot
+            # Validate both plate and slot
             if not self._exists("Platte = ? AND Nut = ?", [plate, slot]):
                 if not self._exists("Platte = ?", [plate]):
                     raise DataNotFoundError(f"Unknown plate={plate!r}.")
@@ -158,17 +168,21 @@ class DuckDBLoader:
         return [row[0] for row in result_rows]
     
     
-    def list_signals(self, plate: str, slot: float, data_origin: Optional[str] = None) -> pd.DataFrame:
+    def list_signals(self, plate: str, slot: Optional[float] = None, data_origin: Optional[str] = None) -> pd.DataFrame:
         self._ensure_plate_slot_exists(plate, slot)
         query = f"""
             SELECT DISTINCT Signal
             FROM {self.table_name}
             WHERE Platte = ?
-            AND Nut = ?
-            AND Signal IS NOT NULL
         """
-        params = [plate, slot]
+        params = [plate]
+        
+        if slot is not None:
+            query += " AND Nut = ?"
+            params.append(slot)
 
+        query += " AND Signal IS NOT NULL"
+        
         if data_origin:
             query += " AND DataOrigin = ?"
             params.append(data_origin)
@@ -178,17 +192,21 @@ class DuckDBLoader:
         
         return df
     
-    def list_data_origins(self, plate: str, slot: float) -> list[str]:
+    def list_data_origins(self, plate: str, slot: Optional[float] = None) -> list[str]:
         self._ensure_plate_slot_exists(plate, slot)
         query = f"""
             SELECT DISTINCT DataOrigin
             FROM {self.table_name}
             WHERE Platte = ?
-            AND Nut = ?
-            AND DataOrigin IS NOT NULL
-            ORDER BY DataOrigin
         """
-        rows = self.con.execute(query, [plate, slot]).fetchall()
+        params = [plate]
+        
+        if slot is not None:
+            query += " AND Nut = ?"
+            params.append(slot)
+            
+        query += " AND DataOrigin IS NOT NULL ORDER BY DataOrigin"
+        rows = self.con.execute(query, params).fetchall()
         return [row[0] for row in rows]
             
     
@@ -254,7 +272,7 @@ class DuckDBLoader:
     # Example:
     #
     # def my_query(self, arg1, arg2):
-    #     self._ensure_plate_exists(arg1)
+    #     self._ensure_plate_slot_exists(arg1, arg2)
     #     query = f"""
     #         SELECT ... FROM {self.table_name}
     #         WHERE Platte = ? AND Nut = ?
