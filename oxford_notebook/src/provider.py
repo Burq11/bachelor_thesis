@@ -161,7 +161,7 @@ def plate_slots() -> list[tuple[str, float]]:
         hint="Check provider.init() and provider.where() to see if the Database is connected.",
     )
     
-def signals(plate: str, slot: float | None = None, data_origin: str | None = None) -> pd.DataFrame:
+def signals(plate: str, slot: float, data_origin: str | None = None) -> pd.DataFrame:
     plate = str(plate)
     return _client_call(
         lambda: loader_global.list_signals(plate, slot, data_origin=data_origin),
@@ -169,7 +169,7 @@ def signals(plate: str, slot: float | None = None, data_origin: str | None = Non
         hint="Try provider.slots(<plate>) or list all plates and its slots with provider.plate_slots().",
     )
 
-def data_origin(plate: str, slot: float | None = None) -> list[str]:
+def data_origin(plate: str, slot: float) -> list[str]:
     plate = str(plate)
     return _client_call(
         lambda: loader_global.list_data_origins(plate, slot),
@@ -177,10 +177,10 @@ def data_origin(plate: str, slot: float | None = None) -> list[str]:
         hint="Try provider.plate_slots() to list all slots and plates.",
     )
 
-def df(plate: str, slot: float | None = None, **kwargs) -> pd.DataFrame:
+def df(plate: str, slot: float, **kwargs) -> pd.DataFrame:
     plate = str(plate) 
     return _client_call(
-        lambda: loader_global.get_data_df(plate, slot=slot, **kwargs),
+        lambda: loader_global.get_data_df(plate, slot, **kwargs),
         empty_return=pd.DataFrame(),
         hint="Check plate/slot and filters. Use provider.schema() to see valid columns. and provider.plate_slots() to list all available slots for plates",
     )
