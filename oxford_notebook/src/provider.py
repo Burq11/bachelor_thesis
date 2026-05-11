@@ -177,10 +177,10 @@ def data_origin(plate: str, slot: float) -> list[str]:
         hint="Try provider.plate_slots() to list all slots and plates.",
     )
 
-def df(plate: str, slot: float, **kwargs) -> pd.DataFrame:
+def df(plate: str, **kwargs) -> pd.DataFrame:
     plate = str(plate) 
     return _client_call(
-        lambda: loader_global.get_data_df(plate, slot, **kwargs),
+        lambda: loader_global.get_data_df(plate, **kwargs),
         empty_return=pd.DataFrame(),
         hint="Check plate/slot and filters. Use provider.schema() to see valid columns. and provider.plate_slots() to list all available slots for plates",
     )
