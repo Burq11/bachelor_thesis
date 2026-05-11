@@ -61,7 +61,19 @@ jupyter lab notebooks/notebook_demo.ipynb
 
 ---
 
-## 🚀 Getting Started
+## About Notebooks
+
+Notebooks in this project are stored **without outputs** in version control to keep the repository clean and focused on code changes.
+
+### Automatic Output Stripping
+
+Outputs are automatically removed before commits via a git pre-commit hook (`nbstripout`). This ensures:
+- Clean git history (only code changes are tracked)
+- Smaller repository size
+- Easier collaboration and merge conflict resolution
+---
+
+##  Getting Started
 
 Paste a database file into the `data/` folder. Then, open the `notebook_demo.ipynb` to see how to load and explore the data using the provider and loader functions. The notebook includes examples of querying the database and visualizing data distributions .
 
