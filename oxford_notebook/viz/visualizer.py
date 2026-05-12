@@ -653,16 +653,14 @@ def create_axiswise_plots(
 def create_axiswise_plots2(
     df,
     axis_column='Axis',
-    filter_column='DataOrigin',
-    filter_value='HF_Data',
     signal_column='Signal',
     group_column='Groupname',
     x_column='Duration_Seconds',
     y_column='Value',
     color_column=None,
-    signal_color_mapping = True,
+    signal_color_mapping=True,
     hoverdict=None,
-    marker = False,
+    marker=False,
     normalize_method='zscore',
     max_display_points=10000,
     sort_order=['X', 'Y', 'Z', 'SP', 'A', 'B', ''],
@@ -678,10 +676,9 @@ def create_axiswise_plots2(
     """
     Erstellt gruppierte Plotly-Linienplots je Achse inkl. optionaler GCode-Annotationen.
 
+    Die Funktion erwartet, dass der DataFrame (df) bereits nach Datenquelle (z.B. DataOrigin) gefiltert ist.
     Die Farbpalette wird aus dem aktiven Plotly-Template oder optional übergeben.
     Ereignisse wie NC-Blöcke oder Taktpunkte können als vertikale Rechtecke oder Linien dargestellt werden.
-
-    [Docstring wie bisher + neue Parameter siehe unten]
 
     Returns
     -------
@@ -698,31 +695,27 @@ def create_axiswise_plots2(
             'HFProbeCounter': True
         }
 
-    df_filtered = df.loc[df[filter_column] == filter_value].copy()
+    df_filtered = df.copy()
     df_filtered[signal_column] = df_filtered[signal_column].astype(str)
 
     if color_palette is None:
         template_name = pio.templates.default
         color_palette = pio.templates[template_name].layout.colorway
-    if signal_color_mapping == True:
+    if signal_color_mapping:
         signal_to_color = get_signal_to_color_map(
-                df_filtered, signal_column, group_column, color_palette
-            )
+            df_filtered, signal_column, group_column, color_palette
+        )
     else:
         signal_to_color = None
 
     df_filtered[y_column] = normalize_column(
         df_filtered, y_column, groupby_col=signal_column, method=normalize_method
     )
-    
-
 
     df_gcode = filter_unique_gcodes(df, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
-    # print(df_gcode)
     available_axes = df_filtered[axis_column].unique()
-    
     axis_values = sorted(
-    available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
+        available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
     )
 
     figures = {}
@@ -744,7 +737,7 @@ def create_axiswise_plots2(
             hover_data=hoverdict,
             title=f"Achse: {axis}",
             color_discrete_map=signal_to_color,
-            markers = marker
+            markers=marker
         )
         fig.update_traces(opacity=trace_opacity)
 
