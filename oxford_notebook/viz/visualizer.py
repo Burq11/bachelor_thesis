@@ -653,6 +653,8 @@ def create_axiswise_plots(
 def create_axiswise_plots2(
     df,
     axis_column='Axis',
+    filter_column='DataOrigin',
+    filter_value='HF_Data',
     signal_column='Signal',
     group_column='Groupname',
     x_column='Duration_Seconds',
@@ -676,7 +678,6 @@ def create_axiswise_plots2(
     """
     Erstellt gruppierte Plotly-Linienplots je Achse inkl. optionaler GCode-Annotationen.
 
-    Die Funktion erwartet, dass der DataFrame (df) bereits nach Datenquelle (z.B. DataOrigin) gefiltert ist.
     Die Farbpalette wird aus dem aktiven Plotly-Template oder optional übergeben.
     Ereignisse wie NC-Blöcke oder Taktpunkte können als vertikale Rechtecke oder Linien dargestellt werden.
 
@@ -695,13 +696,13 @@ def create_axiswise_plots2(
             'HFProbeCounter': True
         }
 
-    df_filtered = df.copy()
+    df_filtered = df.loc[df[filter_column] == filter_value].copy()
     df_filtered[signal_column] = df_filtered[signal_column].astype(str)
 
     if color_palette is None:
         template_name = pio.templates.default
         color_palette = pio.templates[template_name].layout.colorway
-    if signal_color_mapping:
+    if signal_color_mapping == True:
         signal_to_color = get_signal_to_color_map(
             df_filtered, signal_column, group_column, color_palette
         )
