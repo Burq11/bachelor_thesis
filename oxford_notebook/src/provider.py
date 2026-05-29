@@ -182,7 +182,7 @@ def df(plate: str, slot: float | None = None, **kwargs) -> pd.DataFrame:
     return _client_call(
         lambda: loader_global.get_data_df(plate, slot, **kwargs),
         empty_return=pd.DataFrame(),
-        hint="Call as provider.df(plate) or provider.df(plate, slot) or provider.df(plate, slot, fields=...). Use provider.schema() to see valid columns.",
+        hint="Try provider.plate_slots() to see valid plates and their slots. Use provider.schema() to see valid columns.",
     )
     
 def group_data(group_by: list[str], agg: dict, *args, **kwargs) -> pd.DataFrame:

@@ -222,6 +222,7 @@ class DuckDBLoader:
         params: list = [plate]
 
         if slot is not None:
+            self._ensure_plate_slot_exists(plate, slot)
             query += " AND Nut = ?"
             params.append(slot)
         
