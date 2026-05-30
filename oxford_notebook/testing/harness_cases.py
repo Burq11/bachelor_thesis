@@ -9,6 +9,8 @@ Add more wrappers here when you need to compare pipelines that don't map
 
 from __future__ import annotations
 
+import random
+
 import pandas as pd
 
 
@@ -81,3 +83,95 @@ def heatmap_sql(
         return pd.DataFrame(columns=["Nut", "Y_min", "Y_max", "Y_bin_center", "RMS_raw"])
 
     return df[["Nut", "Y_min", "Y_max", "Y_bin_center", "RMS_raw"]]
+
+
+def _select_random_plates(*, plate_count: int, seed: int | None) -> list[str]:
+    from src import provider
+
+    plates = [str(p) for p in provider.plates()]
+    plates = sorted(set(plates))
+
+    if plate_count <= 0 or not plates:
+        return []
+
+    if plate_count >= len(plates):
+        return plates
+
+    rng = random.Random(int(seed) if seed is not None else 0)
+    return rng.sample(plates, k=int(plate_count))
+
+
+def heatmap_old_random_plates(
+    *,
+    plate_count: int = 10,
+    seed: int | None = 0,
+    bin_size_mm: float = 10.0,
+    target_signal: str = "X",
+    target_origin: str = "Oscilloscope",
+) -> pd.DataFrame:
+    """Compute *old* heatmap outputs for a random sample of plates.
+
+    Returns a single concatenated DataFrame with an extra `Platte` column.
+    """
+
+    plates = _select_random_plates(plate_count=plate_count, seed=seed)
+    frames: list[pd.DataFrame] = []
+
+    for plate in plates:
+        df = heatmap_old_from_provider(
+            plate,
+            bin_size_mm=bin_size_mm,
+            target_signal=target_signal,
+            target_origin=target_origin,
+        )
+        if df is None or df.empty:
+            continue
+
+        out = df.copy()
+        out.insert(0, "Platte", str(plate))
+        frames.append(out)
+
+    cols = ["Platte", "Nut", "Y_min", "Y_max", "Y_bin_center", "RMS_raw"]
+    if not frames:
+        return pd.DataFrame(columns=cols)
+
+    combined = pd.concat(frames, ignore_index=True)
+    return combined[cols]
+
+
+def heatmap_sql_random_plates(
+    *,
+    plate_count: int = 10,
+    seed: int | None = 0,
+    bin_size_mm: float = 10.0,
+    target_signal: str = "X",
+    target_origin: str = "Oscilloscope",
+) -> pd.DataFrame:
+    """Compute *SQL* heatmap outputs for a random sample of plates.
+
+    Returns a single concatenated DataFrame with an extra `Platte` column.
+    """
+
+    plates = _select_random_plates(plate_count=plate_count, seed=seed)
+    frames: list[pd.DataFrame] = []
+
+    for plate in plates:
+        df = heatmap_sql(
+            plate,
+            bin_size_mm=bin_size_mm,
+            target_signal=target_signal,
+            target_origin=target_origin,
+        )
+        if df is None or df.empty:
+            continue
+
+        out = df.copy()
+        out.insert(0, "Platte", str(plate))
+        frames.append(out)
+
+    cols = ["Platte", "Nut", "Y_min", "Y_max", "Y_bin_center", "RMS_raw"]
+    if not frames:
+        return pd.DataFrame(columns=cols)
+
+    combined = pd.concat(frames, ignore_index=True)
+    return combined[cols]

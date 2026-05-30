@@ -55,6 +55,7 @@ class RunMeta:
     commit: str
     call: str
     seconds: float
+    max_rss_bytes: int | None
     rows: int
     cols: int
     columns: list[str]
@@ -66,6 +67,12 @@ class CompareMeta:
     call: str
     main_branch: str
     feature_branch: str
+    main_seconds: float
+    feature_seconds: float
+    speedup_main_over_feature: float
+    main_max_rss_bytes: int | None
+    feature_max_rss_bytes: int | None
+    max_rss_ratio_main_over_feature: float | None
     join_keys: list[str]
     derive_y_bin_idx: float | None
     main_rows: int
@@ -208,6 +215,9 @@ import sys
 import time
 from pathlib import Path
 
+import platform
+import resource
+
 import numpy as np
 import pandas as pd
 
@@ -247,6 +257,15 @@ start = time.perf_counter()
 result = fn(*args, **kwargs)
 seconds = time.perf_counter() - start
 
+ru_maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+# Linux: kilobytes. macOS: bytes.
+if sys.platform == 'darwin':
+    max_rss_bytes = int(ru_maxrss)
+    max_rss_unit = 'bytes'
+else:
+    max_rss_bytes = int(ru_maxrss * 1024)
+    max_rss_unit = 'kilobytes'
+
 artifact_dir.mkdir(parents=True, exist_ok=True)
 
 meta = {
@@ -254,6 +273,9 @@ meta = {
     'commit': subprocess.check_output(['git','rev-parse','HEAD'], cwd=str(worktree_repo_root)).decode().strip(),
     'call': call,
     'seconds': float(seconds),
+    'max_rss_bytes': int(max_rss_bytes),
+    'max_rss_unit': str(max_rss_unit),
+    'platform': str(platform.platform()),
 }
 
 # Persist result (DataFrame-first; otherwise JSON-ish)
@@ -327,6 +349,7 @@ print(json.dumps(meta))
         commit=str(meta.get("commit")),
         call=str(meta.get("call")),
         seconds=float(meta.get("seconds", 0.0)),
+        max_rss_bytes=int(meta.get("max_rss_bytes")) if meta.get("max_rss_bytes") is not None else None,
         rows=int(meta.get("rows", 0)),
         cols=int(meta.get("cols", 0)),
         columns=list(meta.get("columns", [])),
@@ -447,6 +470,12 @@ def _compare_dataframes(
         call="",
         main_branch="",
         feature_branch="",
+        main_seconds=0.0,
+        feature_seconds=0.0,
+        speedup_main_over_feature=0.0,
+        main_max_rss_bytes=None,
+        feature_max_rss_bytes=None,
+        max_rss_ratio_main_over_feature=None,
         join_keys=list(join_keys),
         derive_y_bin_idx=float(derive_y_bin_idx) if derive_y_bin_idx is not None else None,
         main_rows=int(len(df_main)),
@@ -588,6 +617,17 @@ def main() -> None:
     cmp_meta.main_branch = args.main_branch
     cmp_meta.feature_branch = feature_label
 
+    # Perf/meta (kept in compare.json so results are self-contained)
+    cmp_meta.main_seconds = float(main_meta.seconds)
+    cmp_meta.feature_seconds = float(feat_meta.seconds)
+    cmp_meta.speedup_main_over_feature = (main_meta.seconds / feat_meta.seconds) if feat_meta.seconds > 0 else float("inf")
+    cmp_meta.main_max_rss_bytes = main_meta.max_rss_bytes
+    cmp_meta.feature_max_rss_bytes = feat_meta.max_rss_bytes
+    if main_meta.max_rss_bytes is not None and feat_meta.max_rss_bytes is not None and feat_meta.max_rss_bytes > 0:
+        cmp_meta.max_rss_ratio_main_over_feature = float(main_meta.max_rss_bytes) / float(feat_meta.max_rss_bytes)
+    else:
+        cmp_meta.max_rss_ratio_main_over_feature = None
+
     # Write outputs
     _write_json(out_dir / "run_main.json", asdict(main_meta))
     _write_json(out_dir / "run_feature.json", asdict(feat_meta))
@@ -605,6 +645,12 @@ def main() -> None:
     print(f"feat: {feature_label} @ {feat_meta.commit[:8]}  ({feat_meta.seconds:.3f}s)")
     speedup = (main_meta.seconds / feat_meta.seconds) if feat_meta.seconds > 0 else float('inf')
     print(f"speedup (main/feat): x{speedup:.2f}")
+
+    if main_meta.max_rss_bytes is not None and feat_meta.max_rss_bytes is not None:
+        main_mb = main_meta.max_rss_bytes / (1024 * 1024)
+        feat_mb = feat_meta.max_rss_bytes / (1024 * 1024)
+        ratio = (main_mb / feat_mb) if feat_mb > 0 else float('inf')
+        print(f"peak RSS (main/feat): {main_mb:.1f}MB / {feat_mb:.1f}MB  (ratio x{ratio:.2f})")
 
     print(f"rows (main/feat): {cmp_meta.main_rows} / {cmp_meta.feature_rows}")
     print(f"matched: {cmp_meta.matched_rows} | only_main: {cmp_meta.only_main_rows} | only_feat: {cmp_meta.only_feature_rows}")
