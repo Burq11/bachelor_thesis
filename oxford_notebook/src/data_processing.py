@@ -647,3 +647,126 @@ def reduce_redundant_signals(df, corr_threshold=0.9):
     corr_reduced = df_reduced.corr()
 
     return df_reduced, corr_reduced, groups, kept, dropped
+
+def prepare_equal_bins_heatmap_sql(platte, bin_size_mm=10, target_signal='X', target_origin='Oscilloscope'):
+    """
+    Erstellt Heatmap-Daten direkt aus der DuckDB-Datenbank mit SQL.
+    - Binning in Y-Richtung (in mm) für jeden Slot.
+    - Berechnung des RMS-Wertes pro Bin.
+    - Gibt ein DataFrame mit den Ergebnissen zurück.
+    """
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    con = provider.loader_global.con
+    table = provider.loader_global.table_name
+
+    # Notes on schema:
+    # - Single table with columns incl. Platte (VARCHAR) + Nut (DOUBLE)
+    # - We bin WCS_Y_mm into equal bins per Nut starting at 0
+    # - For the last bin, we truncate Y_max to the actual slot max(WCS_Y_mm)
+    query = f"""
+    WITH SignalData AS (
+        SELECT
+            Nut,
+            WCS_Y_mm,
+            Value
+        FROM {table}
+        WHERE Platte = ?
+          AND Axis = ?
+          AND DataOrigin = ?
+          AND Nut IS NOT NULL
+          AND WCS_Y_mm IS NOT NULL
+          AND Value IS NOT NULL
+                    AND WCS_Y_mm >= 0
+    ),
+    SlotMaxY AS (
+        SELECT
+            Nut,
+            MAX(WCS_Y_mm) AS slot_y_max
+        FROM SignalData
+        GROUP BY Nut
+    ),
+    BinnedData AS (
+        SELECT
+            sd.Nut,
+            sd.Value,
+            floor(sd.WCS_Y_mm / ?) * ? AS y_min,
+            smy.slot_y_max AS slot_y_max
+        FROM SignalData sd
+        JOIN SlotMaxY smy USING (Nut)
+        WHERE sd.WCS_Y_mm < smy.slot_y_max
+    )
+    SELECT
+        Nut,
+        y_min AS Y_min,
+        least(y_min + ?, slot_y_max) AS Y_max,
+        (y_min + least(y_min + ?, slot_y_max)) / 2.0 AS Y_bin_center,
+        sqrt(avg(Value * Value)) AS RMS_raw
+    FROM BinnedData
+    GROUP BY Nut, y_min, slot_y_max
+    ORDER BY Nut, y_min
+    """
+
+    params = [str(platte), str(target_signal), str(target_origin), float(bin_size_mm), float(bin_size_mm), float(bin_size_mm), float(bin_size_mm)]
+    return con.execute(query, params).fetchdf()
+
+def get_min_max_amplitudes_sql(df_heatmap, platte):
+    """
+    Ermittelt die minimalen und maximalen Schwingungsamplituden für die Bins
+    mit dem global niedrigsten und höchsten RMS-Wert direkt aus der DuckDB.
+    """
+    if df_heatmap.empty:
+        return 0.0, 0.0
+
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    con = provider.loader_global.con
+    table = provider.loader_global.table_name
+
+    # Finde die Bins mit min/max RMS
+    idx_min_rms = df_heatmap['RMS_raw'].idxmin()
+    idx_max_rms = df_heatmap['RMS_raw'].idxmax()
+
+    bin_min = df_heatmap.loc[idx_min_rms]
+    bin_max = df_heatmap.loc[idx_max_rms]
+
+    # Extrahiere die Werte für die SQL-Abfrage (Nut is DOUBLE in DB)
+    slot_min = float(bin_min['Nut'])
+    slot_max = float(bin_max['Nut'])
+    y_min_min = float(bin_min['Y_min'])
+    y_max_min = float(bin_min['Y_max'])
+    y_min_max = float(bin_max['Y_min'])
+    y_max_max = float(bin_max['Y_max'])
+
+    # Keep original semantics from old widget code:
+    # - stable bin -> MIN(Value)
+    # - chatter bin -> MAX(Value)
+    query = f"""
+    SELECT
+        MIN(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS min_amplitude,
+        MAX(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS max_amplitude
+    FROM {table}
+    WHERE Platte = ?
+      AND Axis = 'X'
+      AND DataOrigin = 'Oscilloscope'
+      AND (
+            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?) OR
+            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?)
+          )
+    """
+
+    params = [
+        slot_min, y_min_min, y_max_min,
+        slot_max, y_min_max, y_max_max,
+        str(platte),
+        slot_min, y_min_min, y_max_min,
+        slot_max, y_min_max, y_max_max,
+    ]
+    result = con.execute(query, params).fetchone()
+    
+    true_min = result[0] if result[0] is not None else 0.0
+    true_max = result[1] if result[1] is not None else 0.0
+    
+    return true_min, true_max

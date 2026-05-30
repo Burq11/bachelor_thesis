@@ -66,7 +66,7 @@ def show_plate_slot_selection_widget(default_plate=None, state=None):
     display(widgets.VBox([widgets.HBox([plate_dropdown, slot_dropdown, confirm_button]), output]))
     
 
-#########HEATMAP###############  IMPLEMENTATION BY OTHER STUDENT
+#########HEATMAP###############  IMPLEMENTATION BY OTHER STUDENTs
 def show_heatmap_widget(heatmap_state=None):
     """
     Interactive widget for digital twin heatmap visualization with spatial color gradients.
@@ -235,32 +235,15 @@ def show_heatmap_widget(heatmap_state=None):
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
-                from src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
+                from src.data_processing import prepare_equal_bins_heatmap_sql, get_min_max_amplitudes_sql, analyze_platte, summarize_chatter_cases
                 from viz.visualizer import plot_digital_twin_heatmap_gradient
 
-                # Use provider to get all slots for the selected plate
-                slots = provider.slots(platte)
-                if not slots:
-                    print(f"No slots found for Plate {platte}")
-                    return
-    
-                # Build heatmap data 
-                all_heatmap_data = []
-                y_ranges = []
-                for slot in slots:
-                    df = provider.df(platte, slot)
-                    if df is None or df.empty:
-                        continue
-                    df_heatmap = prepare_equal_bins_heatmap(df, bin_size_mm=bin_size_mm)
-                    if not df_heatmap.empty:
-                        all_heatmap_data.append(df_heatmap)
-                        y_ranges.append((df_heatmap["Y_min"].min(), df_heatmap["Y_max"].max()))
-    
-                if not all_heatmap_data:
+                # Get heatmap data from SQL
+                df_heatmap = prepare_equal_bins_heatmap_sql(platte, bin_size_mm=bin_size_mm)
+
+                if df_heatmap.empty:
                     print(f"No valid heatmap data for Plate {platte}")
                     return
-    
-                df_heatmap = pd.concat(all_heatmap_data, ignore_index=True)
 
                 # Compute global normalization
                 vmin, vmax = df_heatmap["RMS_raw"].min(), df_heatmap["RMS_raw"].max()
@@ -269,82 +252,9 @@ def show_heatmap_widget(heatmap_state=None):
                 else:
                     df_heatmap["RMS_normalized_global"] = 0.0
                 
-                # Compute true vibration amplitude for RMS_min and RMS_max bins (cutting region only)
-              
-                #   RMS = 0 → represent the *most stable* bin        (lowest RMS_raw)
-                #   RMS = 1 → represent the *worst chatter* bin      (highest RMS_raw)
-                
-                #   For each of these two bins, we want to extract the *actual*
-                #   oscilloscope peak vibration amplitude (from the raw X-signal)
-        
-                # Column identifying the slot in df_heatmap (Nut or Nut_ID depending on your files)
-                slot_col = "Nut" if "Nut" in df_heatmap.columns else "Nut_ID"
-        
-                # Locate the bins with globally smallest and largest RMS_raw 
-                idx_rms_min = df_heatmap["RMS_raw"].idxmin()  # → index of most stable bin
-                idx_rms_max = df_heatmap["RMS_raw"].idxmax()  # → index of chatter hotspot
-        
-                # Extract the full row for both bins
-                bin_min = df_heatmap.loc[idx_rms_min]  # row with smallest RMS_raw
-                bin_max = df_heatmap.loc[idx_rms_max]  # row with largest RMS_raw
-        
-                # Slot numbers for those bins
-                slot_min = int(bin_min[slot_col])
-                slot_max = int(bin_max[slot_col])
-        
-                # Y-limits of the most stable bin
-                y_min_min = float(bin_min["Y_min"])
-                y_max_min = float(bin_min["Y_max"])
-                y_min_max = float(bin_max["Y_min"])
-                y_max_max = float(bin_max["Y_max"])
-        
-                # Lists to collect X-axis oscillation values belonging to each bin
-                vals_min = []   # raw vibrations in RMS_min bin
-                vals_max = []   # raw vibrations in RMS_max bin
-        
-                # Loops over slots
-                for slot in slots:
-                    df = provider.df(platte, slot)
-                    if df is None or df.empty:
-                        continue
-        
-                    # Extract only oscilloscope X-channel data
-                    df_sig = df[
-                        (df["Axis"] == "X") &
-                        (df["DataOrigin"] == "Oscilloscope")
-                    ]
-        
-                    # OPTIONAL: remove extreme spikes if desired
-                    # df_sig = df_sig[df_sig["Value"].between(-1.0, 1.0)]
-        
-                    # If this file corresponds to the RMS_min bin slot:
-                    if slot == slot_min:
-                        # Select oscilloscope samples exactly within this bin's Y-range
-                        mask_min = (
-                            (df_sig["WCS_Y_mm"] >= y_min_min) &
-                            (df_sig["WCS_Y_mm"] <= y_max_min)
-                        )
-                        vals_min.extend(df_sig.loc[mask_min, "Value"].values)
-                    # If this slot corresponds to the RMS_max bin slot:
-                    if slot == slot_max:
-                        mask_max = (
-                            (df_sig["WCS_Y_mm"] >= y_min_max) &
-                            (df_sig["WCS_Y_mm"] <= y_max_max)
-                        )
-                        vals_max.extend(df_sig.loc[mask_max, "Value"].values)
-                if vals_min:
-                    amp_min = float(np.min(vals_min))   # often ~ small periodic vibration
-                else:
-                    amp_min = 0.0                       # fallback if no data found
-        
-                if vals_max:
-                    amp_max = float(np.max(vals_max))   # chatter spikes → large values
-                else:
-                    amp_max = 0.0                       # fallback
-        
-                # These amplitudes correspond directly to RMS=0 and RMS=1 regions
-                true_min = amp_min
-                true_max = amp_max
+                # Get min/max amplitudes from SQL
+                true_min, true_max = get_min_max_amplitudes_sql(df_heatmap, platte)
+
                 # Summary and plot
                 df_summary, _ = analyze_platte(platte, summarize_chatter_cases, lambda x: None)
                 fig = plot_digital_twin_heatmap_gradient(df_heatmap, df_summary=df_summary)
