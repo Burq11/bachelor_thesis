@@ -57,8 +57,8 @@ class CompareReport:
 
 def _repo_paths() -> tuple[Path, Path]:
     # .../oxford_notebook/tools/compare_heatmap_methods.py
-    tools_dir = Path(__file__).resolve().parent
-    oxford_root = tools_dir.parent
+    tests_dir = Path(__file__).resolve().parent
+    oxford_root = tests_dir.parent
     repo_root = oxford_root.parent
     return repo_root, oxford_root
 

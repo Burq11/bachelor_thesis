@@ -20,6 +20,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# ---- Local worktrees (branch comparisons) ----
+.worktrees/
+
 # ---- Data / databases / outputs ----
 */data/*.duckdb
 */data/
