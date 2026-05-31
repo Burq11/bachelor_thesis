@@ -41,7 +41,7 @@ class DuckDBLoader:
         table_name: str = table_var,
         default_limit: int = 20000000,  #change the limits later 
         max_limit:  int = 200000000,    #change the limits later
-        read_only: bool = True,
+        read_only: bool = False,
     ):
         self.db_path = Path(db_path)
         self.table_name = table_name
@@ -263,6 +263,107 @@ class DuckDBLoader:
     # ----------------------------
     # Place for your queries 
     # ----------------------------
+
+    def slot_metadata_summary(self, plate: str, *, data_origin: Optional[str] = None) -> pd.DataFrame:
+        """Return one metadata row per slot for a plate.
+
+        This mirrors the scalar metadata extracted in `summarize_chatter_cases`
+        without loading raw rows into Python.
+
+        Columns:
+          - Nut (slot id)
+          - Nut_ID (slot id as stored in signal R319; falls back to Nut)
+          - X_Position_Nut (signal R321)
+          - Werkzeugradius (signal actToolRadius[u1])
+          - Drehzahl (signal R330)
+          - Werkzeug (signal actToolIdent[u1,1], Value_String)
+        """
+
+        self._ensure_plate_exists(plate)
+
+        # NOTE: Use deterministic aggregates (MIN/MAX) to keep stable output.
+        # The raw table is long-form (Signal/Value[/Value_String]).
+        query = f"""
+            SELECT
+                Nut,
+                COALESCE(MIN(CASE WHEN Signal = 'R319' THEN Value END), Nut) AS Nut_ID,
+                MIN(CASE WHEN Signal = 'R321' THEN Value END) AS X_Position_Nut,
+                MIN(CASE WHEN Signal = 'actToolRadius[u1]' THEN Value END) AS Werkzeugradius,
+                MIN(CASE WHEN Signal = 'R330' THEN Value END) AS Drehzahl,
+                MIN(CASE WHEN Signal = 'actToolIdent[u1,1]' THEN Value_String END) AS Werkzeug
+            FROM {self.table_name}
+            WHERE Platte = ?
+              AND Nut IS NOT NULL
+              AND Signal IN (
+                'R319',
+                'R321',
+                'R330',
+                'actToolRadius[u1]',
+                'actToolIdent[u1,1]'
+              )
+        """
+        params: list = [plate]
+
+        if data_origin:
+            query += " AND DataOrigin = ?"
+            params.append(data_origin)
+
+        query += " GROUP BY Nut ORDER BY Nut"
+        return self.query_df(query, params)
+
+    def slot_chatter_cases_summary(self, plate: str, *, data_origin: Optional[str] = None) -> pd.DataFrame:
+        """Return chatter boundary rows per slot (long-form).
+
+        Output format matches `summarize_chatter_cases` shape at the boundary:
+          - One row with Chatter=0 if R310 has Value=0 in the slot (Y_max is max WCS_Y_mm where Value=0).
+          - One row with Chatter=1 if R310 has Value=1 in the slot (Y_max is the slot's max WCS_Y_mm).
+
+        Columns: Nut, Chatter, Y_max
+        """
+
+        self._ensure_plate_exists(plate)
+
+        query = f"""
+            WITH SlotAgg AS (
+                SELECT
+                    Nut,
+                    MAX(WCS_Y_mm) AS slot_y_max,
+                    MAX(CASE WHEN Signal = 'R310' AND Value = 0 THEN WCS_Y_mm END) AS y_max_no_chatter,
+                    MAX(CASE WHEN Signal = 'R310' AND Value = 1 THEN 1 ELSE 0 END) AS has_chatter
+                FROM {self.table_name}
+                WHERE Platte = ?
+                  AND Nut IS NOT NULL
+                  AND WCS_Y_mm IS NOT NULL
+            """
+        params: list = [plate]
+
+        if data_origin:
+            query += " AND DataOrigin = ?"
+            params.append(data_origin)
+
+        query += """
+                GROUP BY Nut
+            )
+            SELECT
+                Nut,
+                0 AS Chatter,
+                y_max_no_chatter AS Y_max
+            FROM SlotAgg
+            WHERE y_max_no_chatter IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                Nut,
+                1 AS Chatter,
+                slot_y_max AS Y_max
+            FROM SlotAgg
+            WHERE has_chatter = 1
+
+            ORDER BY Nut, Chatter
+        """
+
+        return self.query_df(query, params)
     
     # Example:
     #

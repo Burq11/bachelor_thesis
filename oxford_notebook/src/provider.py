@@ -203,6 +203,26 @@ def schema() -> pd.DataFrame:
     )
 
 
+def slot_metadata_summary(plate: str, *, data_origin: str | None = None) -> pd.DataFrame:
+    """One row per slot with overlay metadata needed by the heatmap plots."""
+    plate = str(plate)
+    return _client_call(
+        lambda: loader_global.slot_metadata_summary(plate, data_origin=data_origin),
+        empty_return=pd.DataFrame(),
+        hint="Check provider.init() and provider.where() to see if the Database is connected.",
+    )
+
+
+def slot_chatter_cases_summary(plate: str, *, data_origin: str | None = None) -> pd.DataFrame:
+    """Long-form chatter boundary summary per slot (no raw per-slot loads)."""
+    plate = str(plate)
+    return _client_call(
+        lambda: loader_global.slot_chatter_cases_summary(plate, data_origin=data_origin),
+        empty_return=pd.DataFrame(),
+        hint="Check provider.init() and provider.where() to see if the Database is connected.",
+    )
+
+
 def close() -> None:
     """
     Closes the DuckDB connection if it is initialized.

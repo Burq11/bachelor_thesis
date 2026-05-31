@@ -143,12 +143,41 @@ def show_heatmap_widget(heatmap_state=None):
         ap_start = 2.0
         ap_end = 10.56
     
-        # Slot positions from summary if available
-        slot_positions = {}
-        if "Nut_ID" in df_summary.columns and "X_Position_Nut" in df_summary.columns:
-            slot_positions = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
-    
-        slots = sorted(slot_positions.keys()) if slot_positions else sorted(df_summary["Nut_ID"].dropna().unique())
+        # Slot positions from summary if available.
+        # Safeguard: heatmap bins are keyed by Nut, while legacy overlays often key by Nut_ID.
+        slot_positions_by_nutid = {}
+        slot_positions_by_nut = {}
+
+        if "X_Position_Nut" in df_summary.columns:
+            if "Nut_ID" in df_summary.columns:
+                slot_positions_by_nutid = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+            if "Nut" in df_summary.columns:
+                slot_positions_by_nut = df_summary.set_index("Nut")["X_Position_Nut"].to_dict()
+
+        def _slot_pos(slot_id):
+            for key in (slot_id, float(slot_id) if slot_id is not None else slot_id):
+                if key in slot_positions_by_nutid:
+                    return slot_positions_by_nutid[key]
+                if key in slot_positions_by_nut:
+                    return slot_positions_by_nut[key]
+            try:
+                ikey = int(slot_id)
+            except Exception:
+                return None
+            for key in (ikey, float(ikey)):
+                if key in slot_positions_by_nutid:
+                    return slot_positions_by_nutid[key]
+                if key in slot_positions_by_nut:
+                    return slot_positions_by_nut[key]
+            return None
+
+        # Prefer Nut_ID ordering if present (preserves legacy visuals)
+        if "Nut_ID" in df_summary.columns:
+            slots = sorted(df_summary["Nut_ID"].dropna().unique())
+        elif "Nut" in df_summary.columns:
+            slots = sorted(df_summary["Nut"].dropna().unique())
+        else:
+            slots = []
     
         slot_rpm = {}
         for slot_id in slots:
@@ -189,7 +218,9 @@ def show_heatmap_widget(heatmap_state=None):
                 ap_target = qw_level / (k * rpm)
                 if ap_start <= ap_target <= ap_end:
                     y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
-                    x_target = slot_positions.get(slot_id, 10 + slot_id * 15)
+                    x_target = _slot_pos(slot_id)
+                    if x_target is None:
+                        x_target = 10 + slot_id * 15
                     x_line.append(x_target); y_line.append(y_target)
                 else:
                     x_line.append(None); y_line.append(None)
@@ -235,28 +266,42 @@ def show_heatmap_widget(heatmap_state=None):
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
-                from src.data_processing import prepare_equal_bins_heatmap_sql, get_min_max_amplitudes_sql, analyze_platte, summarize_chatter_cases
+                from src.data_processing import (
+                    prepare_equal_bins_heatmap_sql,
+                    get_min_max_amplitudes_sql_from_db,
+                    summarize_chatter_cases_sql,
+                )
                 from viz.visualizer import plot_digital_twin_heatmap_gradient
 
                 # Get heatmap data from SQL
-                df_heatmap = prepare_equal_bins_heatmap_sql(platte, bin_size_mm=bin_size_mm)
+                df_heatmap = prepare_equal_bins_heatmap_sql(
+                    platte,
+                    bin_size_mm=bin_size_mm,
+                    compute_normalized_global=True,
+                )
 
                 if df_heatmap.empty:
                     print(f"No valid heatmap data for Plate {platte}")
                     return
 
-                # Compute global normalization
-                vmin, vmax = df_heatmap["RMS_raw"].min(), df_heatmap["RMS_raw"].max()
-                if vmax > vmin:
-                    df_heatmap["RMS_normalized_global"] = (df_heatmap["RMS_raw"] - vmin) / (vmax - vmin)
-                else:
-                    df_heatmap["RMS_normalized_global"] = 0.0
+                # Global normalization (prefer SQL result; fallback to Python)
+                if "RMS_normalized_global" not in df_heatmap.columns:
+                    vmin, vmax = df_heatmap["RMS_raw"].min(), df_heatmap["RMS_raw"].max()
+                    if vmax > vmin:
+                        df_heatmap["RMS_normalized_global"] = (df_heatmap["RMS_raw"] - vmin) / (vmax - vmin)
+                    else:
+                        df_heatmap["RMS_normalized_global"] = 0.0
                 
-                # Get min/max amplitudes from SQL
-                true_min, true_max = get_min_max_amplitudes_sql(df_heatmap, platte)
+                # Get min/max amplitudes from SQL (extrema bin selection in DuckDB)
+                true_min, true_max = get_min_max_amplitudes_sql_from_db(
+                    platte,
+                    bin_size_mm=bin_size_mm,
+                    target_signal="X",
+                    target_origin="Oscilloscope",
+                )
 
-                # Summary and plot
-                df_summary, _ = analyze_platte(platte, summarize_chatter_cases, lambda x: None)
+                # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
+                df_summary = summarize_chatter_cases_sql(platte)
                 fig = plot_digital_twin_heatmap_gradient(df_heatmap, df_summary=df_summary)
     
                 # Custom colorbar label 
