@@ -531,17 +531,22 @@ def show_plate_slot_filter_widget(default_plate=None, state=None):
         layout=widgets.Layout(width="200px")
     )
 
+    def get_slot_options(plate):
+        slots = provider.slots(plate)
+        # Add 'All Slots' option mapped to None
+        slot_options = [("All Slots", None)] + [(str(s), s) for s in slots] if slots else [("All Slots", None)]
+        return slot_options
+
     slot_dropdown = widgets.Dropdown(
-        options=provider.slots(plate_dropdown.value),
+        options=get_slot_options(plate_dropdown.value),
+        value=None,
         description="Slot:",
         layout=widgets.Layout(width="200px")
     )
 
     def update_slots(change):
-        slots = provider.slots(change["new"])
-        slot_dropdown.options = slots if slots else []
-        if slots:
-            slot_dropdown.value = slots[0]
+        slot_dropdown.options = get_slot_options(change["new"])
+        slot_dropdown.value = None
 
     plate_dropdown.observe(update_slots, names="value")
 
@@ -616,7 +621,7 @@ def show_plate_slot_filter_widget(default_plate=None, state=None):
             val = row["val_dropdown"].value
             if col and val is not None:
                 filters[col] = val
-        
+
         all_filters = filters.copy()  # for printing later
         # Build kwargs for provider.df
         kwargs = {}
@@ -624,10 +629,27 @@ def show_plate_slot_filter_widget(default_plate=None, state=None):
             kwargs["data_origin"] = filters.pop("DataOrigin")
         if "Signal" in filters:
             kwargs["signals"] = [filters.pop("Signal")]
+
+        # If slot is None ("All Slots"), load all slots for the plate and concatenate
+        if slot is None:
+            slot_list = provider.slots(plate)
+            dfs = []
+            for s in slot_list:
+                df = provider.df(plate, s, **kwargs)
+                if df is not None and not df.empty:
+                    dfs.append(df)
+            if dfs:
+                df = pd.concat(dfs, ignore_index=True)
+            else:
+                df = None
+        else:
+            df = provider.df(plate, slot, **kwargs)
+
         # For other columns, filter in-memory
-        df = provider.df(plate, slot, **kwargs)
         for col, val in filters.items():
-            df = df[df[col] == val]
+            if df is not None and not df.empty:
+                df = df[df[col] == val]
+
         with output:
             if df is not None and not df.empty:
                 builtins.selected_df = df
@@ -641,8 +663,10 @@ def show_plate_slot_filter_widget(default_plate=None, state=None):
                     state.update({"plate": plate, "slot": slot, "df": df, "filters": filters})
             else:
                 print("❌ No data found for the selected filters.")
-            
-            print(f"✅ DataFrame for Plate {plate}, Slot {slot} loaded as 'selected_df' (rows: {len(df)}, columns: {df.shape[1]})")
+            if slot is None:
+                print(f"✅ DataFrame for Plate {plate}, ALL slots loaded as 'selected_df' (rows: {len(df) if df is not None else 0}, columns: {df.shape[1] if df is not None else 0})")
+            else:
+                print(f"✅ DataFrame for Plate {plate}, Slot {slot} loaded as 'selected_df' (rows: {len(df) if df is not None else 0}, columns: {df.shape[1] if df is not None else 0})")
 
     confirm_button = widgets.Button(
         description="Load DataFrame",

@@ -660,9 +660,9 @@ def create_axiswise_plots2(
     x_column='Duration_Seconds',
     y_column='Value',
     color_column=None,
-    signal_color_mapping = True,
+    signal_color_mapping=True,
     hoverdict=None,
-    marker = False,
+    marker=False,
     normalize_method='zscore',
     max_display_points=10000,
     sort_order=['X', 'Y', 'Z', 'SP', 'A', 'B', ''],
@@ -680,8 +680,6 @@ def create_axiswise_plots2(
 
     Die Farbpalette wird aus dem aktiven Plotly-Template oder optional übergeben.
     Ereignisse wie NC-Blöcke oder Taktpunkte können als vertikale Rechtecke oder Linien dargestellt werden.
-
-    [Docstring wie bisher + neue Parameter siehe unten]
 
     Returns
     -------
@@ -706,23 +704,19 @@ def create_axiswise_plots2(
         color_palette = pio.templates[template_name].layout.colorway
     if signal_color_mapping == True:
         signal_to_color = get_signal_to_color_map(
-                df_filtered, signal_column, group_column, color_palette
-            )
+            df_filtered, signal_column, group_column, color_palette
+        )
     else:
         signal_to_color = None
 
     df_filtered[y_column] = normalize_column(
         df_filtered, y_column, groupby_col=signal_column, method=normalize_method
     )
-    
-
 
     df_gcode = filter_unique_gcodes(df, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
-    # print(df_gcode)
     available_axes = df_filtered[axis_column].unique()
-    
     axis_values = sorted(
-    available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
+        available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
     )
 
     figures = {}
@@ -744,7 +738,7 @@ def create_axiswise_plots2(
             hover_data=hoverdict,
             title=f"Achse: {axis}",
             color_discrete_map=signal_to_color,
-            markers = marker
+            markers=marker
         )
         fig.update_traces(opacity=trace_opacity)
 
