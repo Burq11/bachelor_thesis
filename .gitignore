@@ -28,6 +28,7 @@ Thumbs.db
 */data/
 */results/
 *.log
+!db_folder/.gitkeep
 data/2025-05_Oxford_und_Rebecka/
 
 # ---- tests outputs ----
