@@ -839,51 +839,22 @@ def plot_digital_twin_heatmap_gradient(
         rgb = (1 - v) * start_rgb + v * end_rgb
         return f"rgb({int(rgb[0])},{int(rgb[1])},{int(rgb[2])})"
 
-    # Slot positioning 
+    # Slot positioning: use DB-provided Nut_ID -> X_Position_Nut mapping.
     slots = sorted(df_heatmap[slot_column].unique())
     slot_radius = 2.5
-    _slot_pos = None
 
-    if df_summary is not None and "X_Position_Nut" in df_summary.columns:
-        # Slot-id consistency safeguard:
-        # - heatmap bins are keyed by `Nut`
-        # - legacy overlay code often keys by `Nut_ID`
-        # Prefer Nut_ID mapping when available (preserves existing visuals),
-        # but fall back to Nut and type-coerced keys if needed.
-        slot_positions_by_nutid = {}
-        if "Nut_ID" in df_summary.columns:
-            slot_positions_by_nutid = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+    slot_positions = {}
+    if df_summary is not None and "X_Position_Nut" in df_summary.columns and "Nut_ID" in df_summary.columns:
+        try:
+            slot_positions = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+        except Exception:
+            slot_positions = {}
 
-        slot_positions_by_nut = {}
-        if "Nut" in df_summary.columns:
-            slot_positions_by_nut = df_summary.set_index("Nut")["X_Position_Nut"].to_dict()
-
-        def _slot_pos(slot_id):
-            for key in (slot_id, float(slot_id) if slot_id is not None else slot_id):
-                if key in slot_positions_by_nutid:
-                    return slot_positions_by_nutid[key]
-                if key in slot_positions_by_nut:
-                    return slot_positions_by_nut[key]
-            # try int coercion last (e.g., 1.0 vs 1)
-            try:
-                ikey = int(slot_id)
-            except Exception:
-                return None
-            for key in (ikey, float(ikey)):
-                if key in slot_positions_by_nutid:
-                    return slot_positions_by_nutid[key]
-                if key in slot_positions_by_nut:
-                    return slot_positions_by_nut[key]
-            return None
-
-        slot_positions = slot_positions_by_nutid or slot_positions_by_nut
-        if "Werkzeugradius" in df_summary.columns and not df_summary["Werkzeugradius"].empty:
+        if "Werkzeugradius" in df_summary.columns and not df_summary["Werkzeugradius"].dropna().empty:
             try:
                 slot_radius = float(df_summary["Werkzeugradius"].dropna().iloc[0])
             except Exception:
                 pass
-    # else:
-    #     slot_positions = {slot: 10 + slot * 15 for slot in slots}
 
     # Draw heatmap strips for each slot 
     for slot_id in slots:
@@ -891,9 +862,20 @@ def plot_digital_twin_heatmap_gradient(
         if slot_data.empty:
             continue
 
-        x_pos = _slot_pos(slot_id) if callable(_slot_pos) else None
+        # Expect `slot_id` to correspond to `Nut_ID` (integer-like). Use DB mapping.
+        x_pos = None
+        try:
+            key = int(slot_id)
+        except Exception:
+            key = slot_id
+
+        x_pos = slot_positions.get(key)
         if x_pos is None:
-            x_pos = slot_positions.get(slot_id, 10 + slot_id * 15)
+            # fallback to simple spacing if DB position missing
+            try:
+                x_pos = 10 + float(slot_id) * 15
+            except Exception:
+                x_pos = 10
         x0, x1 = x_pos - slot_radius, x_pos + slot_radius
         slot_data = slot_data.sort_values(y_column)
 
