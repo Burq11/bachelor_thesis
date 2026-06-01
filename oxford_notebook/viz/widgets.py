@@ -113,6 +113,21 @@ def show_heatmap_widget(heatmap_state=None):
         style={"description_width": "140px", "font_family": "Arial"}
     )
     slider_qw.disabled = True  # enable only after heatmap is generated
+
+    progress_text = widgets.HTML("<b>Heatmap progress:</b> waiting to start")
+    progress_bar = widgets.IntProgress(
+        value=0,
+        min=0,
+        max=4,
+        description="Progress:",
+        bar_style="info",
+        layout=widgets.Layout(width="420px"),
+    )
+    progress_box = widgets.VBox([progress_text, progress_bar])
+
+    def set_progress(step, message):
+        progress_bar.value = step
+        progress_text.value = f"<b>Heatmap progress:</b> {message}"
     
     def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000):
         """
@@ -258,11 +273,15 @@ def show_heatmap_widget(heatmap_state=None):
     def update_heatmap(button=None):
         global platte
         output_platte.clear_output()
+
+        set_progress(0, "starting")
     
         platte = dropdown_platte.value
         bin_size_mm = slider_bin.value
     
         with output_platte:
+            display(progress_box)
+            set_progress(1, f"creating heatmap for Plate {platte} with bin size {bin_size_mm} mm")
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
@@ -279,6 +298,7 @@ def show_heatmap_widget(heatmap_state=None):
                     bin_size_mm=bin_size_mm,
                     compute_normalized_global=True,
                 )
+                set_progress(2, "loaded heatmap data")
 
                 if df_heatmap.empty:
                     print(f"No valid heatmap data for Plate {platte}")
@@ -303,6 +323,7 @@ def show_heatmap_widget(heatmap_state=None):
                 # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
                 df_summary = summarize_chatter_cases_sql(platte)
                 fig = plot_digital_twin_heatmap_gradient(df_heatmap, df_summary=df_summary)
+                set_progress(3, "building figure and overlays")
     
                 # Custom colorbar label 
                 colorbar_label = (
@@ -341,6 +362,7 @@ def show_heatmap_widget(heatmap_state=None):
                 slot_column = 'Nut' if 'Nut' in df_heatmap.columns else 'Nut_ID'
                 n_slots = df_heatmap[slot_column].nunique()
                 n_segments = len(df_heatmap)
+                set_progress(4, "done")
                 print(f"Heatmap created: {n_slots} slots, {n_segments} segments")
                 display(fig)
     
