@@ -42,13 +42,21 @@ class DuckDBLoader:
         default_limit: int = 20000000,  #change the limits later 
         max_limit:  int = 200000000,    #change the limits later
         read_only: bool = False,
+        pre_attach: str | None = None,
     ):
         self.db_path = Path(db_path)
         self.table_name = table_name
         self.default_limit = default_limit
         self.max_limit = max_limit
         self.con = duckdb.connect(str(self.db_path), read_only= read_only)
-        
+        # run optional pre-attachment SQL (e.g., ATTACH raw DB) before loading schema
+        if pre_attach is not None:
+            try:
+                self.con.execute(pre_attach)
+            except Exception:
+                # best-effort: let schema load fail later with descriptive error
+                pass
+
         self._valid_cols = self._load_schema_cols()
       
         
