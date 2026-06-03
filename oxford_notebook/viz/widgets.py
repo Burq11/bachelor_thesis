@@ -272,7 +272,10 @@ def show_heatmap_widget(heatmap_state=None):
     
     def update_heatmap(button=None):
         global platte
+        import time
         output_platte.clear_output()
+
+        t0 = time.perf_counter()
 
         set_progress(0, "starting")
     
@@ -293,11 +296,13 @@ def show_heatmap_widget(heatmap_state=None):
                 from viz.visualizer import plot_digital_twin_heatmap_gradient
 
                 # Get heatmap data from SQL
+                t_stage = time.perf_counter()
                 df_heatmap = prepare_equal_bins_heatmap_sql(
                     platte,
                     bin_size_mm=bin_size_mm,
                     compute_normalized_global=True,
                 )
+                print(f"[heatmap] prepare_equal_bins_heatmap_sql: {time.perf_counter() - t_stage:.3f}s")
                 set_progress(2, "loaded heatmap data")
 
                 if df_heatmap.empty:
@@ -313,16 +318,28 @@ def show_heatmap_widget(heatmap_state=None):
                         df_heatmap["RMS_normalized_global"] = 0.0
                 
                 # Get min/max amplitudes from SQL (extrema bin selection in DuckDB)
+                t_stage = time.perf_counter()
                 true_min, true_max = get_min_max_amplitudes_sql_from_db(
                     platte,
                     bin_size_mm=bin_size_mm,
                     target_signal="X",
                     target_origin="Oscilloscope",
                 )
+                print(f"[heatmap] get_min_max_amplitudes_sql_from_db: {time.perf_counter() - t_stage:.3f}s")
 
                 # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
+                t_stage = time.perf_counter()
                 df_summary = summarize_chatter_cases_sql(platte)
-                fig = plot_digital_twin_heatmap_gradient(df_heatmap, df_summary=df_summary)
+                print(f"[heatmap] summarize_chatter_cases_sql: {time.perf_counter() - t_stage:.3f}s")
+
+                t_stage = time.perf_counter()
+                fig = plot_digital_twin_heatmap_gradient(
+                    df_heatmap,
+                    df_summary=df_summary,
+                    include_qw_overlay=False,
+                    debug_timing=True,
+                )
+                print(f"[heatmap] plot_digital_twin_heatmap_gradient: {time.perf_counter() - t_stage:.3f}s")
                 set_progress(3, "building figure and overlays")
     
                 # Custom colorbar label 
@@ -345,7 +362,9 @@ def show_heatmap_widget(heatmap_state=None):
                 slider_qw.disabled = False
                 
                 # Redraw overlay once immediately, so default Qw lines get replaced
+                t_stage = time.perf_counter()
                 fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value)
+                print(f"[heatmap] redraw_qw_overlay: {time.perf_counter() - t_stage:.3f}s")
                 
                 # Save state (save the updated fig)
                 if heatmap_state is not None:
@@ -364,6 +383,7 @@ def show_heatmap_widget(heatmap_state=None):
                 n_segments = len(df_heatmap)
                 set_progress(4, "done")
                 print(f"Heatmap created: {n_slots} slots, {n_segments} segments")
+                print(f"[heatmap] total update_heatmap: {time.perf_counter() - t0:.3f}s")
                 display(fig)
     
             except Exception as e:
