@@ -7,6 +7,18 @@ import pandas as pd
 import numpy as np
 import builtins
 
+
+_ACTIVE_HEATMAP_WIDGET = None
+
+
+def _close_widget(widget):
+    if widget is None:
+        return
+    try:
+        widget.close()
+    except Exception:
+        pass
+
 # Widget for selecting plate and slot in one step. Assigns DataFrame to selected_df in global scope.
 def show_plate_slot_selection_widget(default_plate=None, state=None):
     plates = provider.plates()
@@ -73,7 +85,14 @@ def show_heatmap_widget(heatmap_state=None):
     Final version – colorbar shows true physical vibration amplitude (cutting region only),
     and normalized amplitude (0–1) for direct comparison to normalized plots.
     """
-    global platte
+    global platte, _ACTIVE_HEATMAP_WIDGET
+
+    clear_output(wait=True)
+
+    if _ACTIVE_HEATMAP_WIDGET is not None:
+        _close_widget(_ACTIVE_HEATMAP_WIDGET)
+        _ACTIVE_HEATMAP_WIDGET = None
+
     output_platte = widgets.Output()
     if heatmap_state is None:
         heatmap_state = {}
@@ -412,11 +431,15 @@ def show_heatmap_widget(heatmap_state=None):
     update_button.on_click(update_heatmap)
     
     # Layout 
-    display(widgets.VBox([
+    root_widget = widgets.VBox([
         widgets.HBox([dropdown_platte, slider_bin, update_button]),
         slider_qw,
         output_platte
-    ]))
+    ])
+
+    heatmap_state["widget"] = root_widget
+    _ACTIVE_HEATMAP_WIDGET = root_widget
+    display(root_widget)
     
     with output_platte:
         print("Select plate and bin size above, then click 'Generate Heatmap'")
