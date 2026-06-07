@@ -132,6 +132,7 @@ def show_heatmap_widget(heatmap_state=None):
         style={"description_width": "140px", "font_family": "Arial"}
     )
     slider_qw.disabled = True  # enable only after heatmap is generated
+    qw_status = widgets.HTML("")
 
     progress_text = widgets.HTML("<b>Heatmap progress:</b> waiting to start")
     progress_bar = widgets.IntProgress(
@@ -415,9 +416,13 @@ def show_heatmap_widget(heatmap_state=None):
         fig = heatmap_state["fig"]
         df_summary = heatmap_state["df_summary"]
     
+        qw_status.value = f"<b>Qw step:</b> applying {change['new']:,} mm³/min ..."
+
         # Update overlay only
         fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"])
         heatmap_state["fig"] = fig
+
+        qw_status.value = f"<b>Qw step:</b> applied {change['new']:,} mm³/min"
     
         output_platte.clear_output()
         with output_platte:
@@ -434,6 +439,7 @@ def show_heatmap_widget(heatmap_state=None):
     root_widget = widgets.VBox([
         widgets.HBox([dropdown_platte, slider_bin, update_button]),
         slider_qw,
+        qw_status,
         output_platte
     ])
 
