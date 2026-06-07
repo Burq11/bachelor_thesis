@@ -680,7 +680,7 @@ def plot_digital_twin_heatmap_gradient(
     plate_width=245,
     plate_height=245,
     include_qw_overlay=True,
-    debug_timing=False,
+    debug_timing=True,
 ):
     """
     IWF-style Digital Twin Heatmap with:
@@ -941,6 +941,7 @@ def plot_digital_twin_heatmap_gradient(
 
     if include_qw_overlay and df_summary is not None and "Drehzahl" in df_summary.columns:
         t_qw = time.perf_counter()
+        t_qw_start = t_qw
         a_e = 10.0      # mm
         f_rev = 0.18    # mm/rev
         k = a_e * f_rev  # 1.8
@@ -949,6 +950,7 @@ def plot_digital_twin_heatmap_gradient(
         ap_end = 10.56
 
         slot_rpm = {}
+        t_build_slot_rpm = time.perf_counter()
         for slot_id in slots:
             try:
                 rpm_val = float(
@@ -957,6 +959,8 @@ def plot_digital_twin_heatmap_gradient(
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
+        t_build_slot_rpm = time.perf_counter() - t_build_slot_rpm
+        log(f"Qw: built slot_rpm for {len(slot_rpm)} slots in {t_build_slot_rpm:.3f}s")
 
         if slot_rpm:
             max_rpm = max(slot_rpm.values())
@@ -986,52 +990,100 @@ def plot_digital_twin_heatmap_gradient(
 
             qw_colors = sample_colorscale(IWF_GreyBlue_fade_scale, positions)
 
-            # For each Qw level, build points per slot and then draw as line shapes
+            # For each Qw level, compute targets vectorized and coalesce contiguous points
             qw_shape_count = 0
+            qw_staged_shapes = []
+
+            # Build arrays for slots (stable ordering)
+            t_arrays_build = time.perf_counter()
+            slot_ids = np.array(slots)
+            x_array = np.empty(len(slot_ids), dtype=float)
+            rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
+            for i, sid in enumerate(slot_ids):
+                # rpm
+                try:
+                    rpm_array[i] = float(slot_rpm.get(sid, np.nan))
+                except Exception:
+                    rpm_array[i] = np.nan
+                # x positions (try int key then fallback)
+                try:
+                    key = int(sid)
+                except Exception:
+                    key = sid
+                try:
+                    x_array[i] = float(slot_positions.get(key, 10 + (float(sid) if isinstance(sid, (int, float)) or str(sid).replace('.','',1).isdigit() else 0) * 15))
+                except Exception:
+                    x_array[i] = float(slot_positions.get(key, 10))
+            t_arrays_build = time.perf_counter() - t_arrays_build
+            log(f"Qw: built arrays for {len(slot_ids)} slots in {t_arrays_build:.3f}s")
+
+            # Avoid divide-by-zero / nan propagation
+            valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
+
+            total_level_time = 0.0
+            total_path_time = 0.0
+            levels_processed = 0
+
             for qw_level, col in zip(qw_levels, qw_colors):
-                x_line = []
-                y_line = []
+                level_start = time.perf_counter()
+                # vectorized ap_target
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    ap_target = qw_level / (k * rpm_array)
 
-                for slot_id in slots:
-                    if slot_id not in slot_rpm:
-                        x_line.append(None)
-                        y_line.append(None)
-                        continue
+                mask = valid_rpm_mask & (ap_target >= ap_start) & (ap_target <= ap_end)
+                if not mask.any():
+                    total_level_time += time.perf_counter() - level_start
+                    continue
 
-                    rpm = slot_rpm[slot_id]
-                    ap_target = qw_level / (k * rpm)
+                y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
 
-                    if ap_start <= ap_target <= ap_end:
-                        y_target = plate_height * (ap_target - ap_start) / (
-                            ap_end - ap_start
+                # Find contiguous runs of True in mask and build SVG path per run
+                idx = np.where(mask)[0]
+                # identify breaks where consecutive indices are not sequential
+                breaks = np.where(np.diff(idx) != 1)[0]
+                starts = np.concatenate(([idx[0]], idx[breaks + 1]))
+                ends = np.concatenate((idx[breaks], [idx[-1]]))
+
+                path_build_start = time.perf_counter()
+                for s, e in zip(starts, ends):
+                    # build path string: Move to first point, then line to subsequent
+                    path_pts = [f"M {x_array[s]:.2f},{y_target[s]:.2f}"]
+                    if e > s:
+                        for j in range(s + 1, e + 1):
+                            path_pts.append(f"L {x_array[j]:.2f},{y_target[j]:.2f}")
+                    path_str = " ".join(path_pts)
+
+                    qw_staged_shapes.append(
+                        dict(
+                            type="path",
+                            path=path_str,
+                            line=dict(color=col, width=2, dash="dot"),
+                            layer="above",
                         )
-                        x_target = slot_positions.get(slot_id, 10 + slot_id * 15)
-                        x_line.append(x_target)
-                        y_line.append(y_target)
-                    else:
-                        x_line.append(None)
-                        y_line.append(None)
-
-                # Convert the line into shape segments so we can use layer="above"
-                for i in range(len(x_line) - 1):
-                    x0, x1 = x_line[i], x_line[i + 1]
-                    y0, y1 = y_line[i], y_line[i + 1]
-                    if (
-                        x0 is None or x1 is None or
-                        y0 is None or y1 is None
-                    ):
-                        continue
-
-                    fig.add_shape(
-                        type="line",
-                        x0=x0,
-                        y0=y0,
-                        x1=x1,
-                        y1=y1,
-                        line=dict(color=col, width=2, dash="dot"),
-                        layer="above",  # Qw iso-lines above everything
                     )
                     qw_shape_count += 1
+                path_build_time = time.perf_counter() - path_build_start
+                total_path_time += path_build_time
+
+                level_time = time.perf_counter() - level_start
+                total_level_time += level_time
+                levels_processed += 1
+
+            # attach Qw shapes in bulk (extend existing layout shapes)
+            if qw_staged_shapes:
+                t_attach_start = time.perf_counter()
+                existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+                existing_shapes.extend(qw_staged_shapes)
+                fig.update_layout(shapes=existing_shapes)
+                t_attach = time.perf_counter() - t_attach_start
+            else:
+                t_attach = 0.0
+
+            log(
+                f"Qw iso-lines: {len(qw_levels)} levels, processed {levels_processed} levels, "
+                f"{qw_shape_count} shapes (paths), level_compute={total_level_time:.3f}s, "
+                f"path_build={total_path_time:.3f}s, attach={t_attach:.3f}s"
+            )
 
             # tick positions for right-hand MRR axis (use max rpm)
             for qw_level in qw_levels:

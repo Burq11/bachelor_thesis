@@ -149,11 +149,12 @@ def show_heatmap_widget(heatmap_state=None):
         progress_bar.value = step
         progress_text.value = f"<b>Heatmap progress:</b> {message}"
     
-    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000):
+    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000, debug_timing=False):
         """
         Update ONLY Qw iso-lines (dotted line shapes) on an existing heatmap figure.
         No heatmap recomputation.
         """
+        import time
         import numpy as np
         from plotly.colors import sample_colorscale
     
@@ -214,6 +215,8 @@ def show_heatmap_widget(heatmap_state=None):
         else:
             slots = []
     
+
+        t_build_rpm = time.perf_counter()
         slot_rpm = {}
         for slot_id in slots:
             try:
@@ -221,10 +224,13 @@ def show_heatmap_widget(heatmap_state=None):
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
-    
+        t_build_rpm = time.perf_counter() - t_build_rpm
+
         if not slot_rpm:
+            if debug_timing:
+                print(f"[redraw_qw] no slot rpm found (built in {t_build_rpm:.3f}s)")
             return fig
-    
+
         max_rpm = max(slot_rpm.values())
         qw_max = k * ap_end * max_rpm  # mm³/min
     
@@ -238,41 +244,70 @@ def show_heatmap_widget(heatmap_state=None):
         IWF_GreyBlue_fade_scale = [[0.0, "#dfe7ec"], [0.5, "#9fb6c4"], [1.0, "#3a515f"]]
         positions = [0.5] if len(qw_levels) <= 1 else [i / (len(qw_levels) - 1) for i in range(len(qw_levels))]
         qw_colors = sample_colorscale(IWF_GreyBlue_fade_scale, positions)
-    
-        # draw dotted line segments, layer="above"
+
+        # Build arrays once, then stage path shapes and attach them in one batch.
+        slot_ids = np.array(slots)
+        x_array = np.empty(len(slot_ids), dtype=float)
+        rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
+
+        t_build_arrays = time.perf_counter()
+        for i, slot_id in enumerate(slot_ids):
+            rpm_array[i] = float(slot_rpm.get(slot_id, np.nan)) if slot_id in slot_rpm else np.nan
+            x_target = _slot_pos(slot_id)
+            if x_target is None:
+                try:
+                    x_target = 10 + float(slot_id) * 15
+                except Exception:
+                    x_target = 10.0
+            x_array[i] = float(x_target)
+        t_build_arrays = time.perf_counter() - t_build_arrays
+
+        valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
+        qw_shapes = []
+        qw_shape_count = 0
+
+        t_build_lines = time.perf_counter()
         for qw_level, col in zip(qw_levels, qw_colors):
-            x_line = []
-            y_line = []
-    
-            for slot_id in slots:
-                rpm = slot_rpm.get(slot_id, None)
-                if rpm is None:
-                    x_line.append(None); y_line.append(None)
-                    continue
-    
-                ap_target = qw_level / (k * rpm)
-                if ap_start <= ap_target <= ap_end:
-                    y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
-                    x_target = _slot_pos(slot_id)
-                    if x_target is None:
-                        x_target = 10 + slot_id * 15
-                    x_line.append(x_target); y_line.append(y_target)
-                else:
-                    x_line.append(None); y_line.append(None)
-    
-            for i in range(len(x_line) - 1):
-                x0, x1 = x_line[i], x_line[i + 1]
-                y0, y1 = y_line[i], y_line[i + 1]
-                if x0 is None or x1 is None or y0 is None or y1 is None:
-                    continue
-    
-                fig.add_shape(
-                    type="line",
-                    x0=x0, y0=y0,
-                    x1=x1, y1=y1,
-                    line=dict(color=col, width=2, dash="dot"),
-                    layer="above",
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ap_target = qw_level / (k * rpm_array)
+
+            mask = valid_rpm_mask & (ap_target >= ap_start) & (ap_target <= ap_end)
+            if not mask.any():
+                continue
+
+            y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
+            idx = np.where(mask)[0]
+            breaks = np.where(np.diff(idx) != 1)[0]
+            starts = np.concatenate(([idx[0]], idx[breaks + 1]))
+            ends = np.concatenate((idx[breaks], [idx[-1]]))
+
+            for start_idx, end_idx in zip(starts, ends):
+                path_parts = [f"M {x_array[start_idx]:.2f},{y_target[start_idx]:.2f}"]
+                for j in range(start_idx + 1, end_idx + 1):
+                    path_parts.append(f"L {x_array[j]:.2f},{y_target[j]:.2f}")
+                qw_shapes.append(
+                    dict(
+                        type="path",
+                        path=" ".join(path_parts),
+                        line=dict(color=col, width=2, dash="dot"),
+                        layer="above",
+                    )
                 )
+                qw_shape_count += 1
+        t_build_lines = time.perf_counter() - t_build_lines
+
+        t_attach = time.perf_counter()
+        if qw_shapes:
+            existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+            existing_shapes.extend(qw_shapes)
+            fig.update_layout(shapes=existing_shapes)
+        t_attach = time.perf_counter() - t_attach
+
+        if debug_timing:
+            print(
+                f"[redraw_qw] rpm-build={t_build_rpm:.3f}s, arrays={t_build_arrays:.3f}s, "
+                f"paths={t_build_lines:.3f}s, attach={t_attach:.3f}s, shapes={qw_shape_count}"
+            )
     
         return fig
 
@@ -383,7 +418,7 @@ def show_heatmap_widget(heatmap_state=None):
                 
                 # Redraw overlay once immediately, so default Qw lines get replaced
                 t_stage = time.perf_counter()
-                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value)
+                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value, debug_timing=True)
                 print(f"[heatmap] redraw_qw_overlay: {time.perf_counter() - t_stage:.3f}s")
                 
                 # Save state (save the updated fig)
@@ -419,7 +454,7 @@ def show_heatmap_widget(heatmap_state=None):
         qw_status.value = f"<b>Qw step:</b> applying {change['new']:,} mm³/min ..."
 
         # Update overlay only
-        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"])
+        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"], debug_timing=True)
         heatmap_state["fig"] = fig
 
         qw_status.value = f"<b>Qw step:</b> applied {change['new']:,} mm³/min"
