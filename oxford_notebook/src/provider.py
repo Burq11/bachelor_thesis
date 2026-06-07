@@ -254,6 +254,34 @@ def close() -> None:
 # ----------------------------
 # place for custom wrappers 
 # ----------------------------
+
+def axiswise_plot_df(
+    plate: str,
+    slot: float | None = None,
+    *,
+    data_origin: str | None = None,
+    signals: list[str] | None = None,
+    wcs_min: float | None = None,
+    wcs_max: float | None = None,
+    order_by: str = "Time",
+    limit: int | None = None,
+) -> pd.DataFrame:
+    plate = str(plate)
+    return _client_call(
+        lambda: loader_global.get_axiswise_plot_df(
+            plate,
+            slot,
+            data_origin=data_origin,
+            signals=signals,
+            wcs_min=wcs_min,
+            wcs_max=wcs_max,
+            order_by=order_by,
+            limit=limit,
+        ),
+        empty_return=pd.DataFrame(),
+        hint="Check plate/slot and schema via provider.plates(), provider.slots(), provider.schema().",
+    )
+    
 """
 Wrapper Schema
 --------------

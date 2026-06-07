@@ -559,8 +559,6 @@ def create_axiswise_plots(
 def create_axiswise_plots2(
     df,
     axis_column='Axis',
-    filter_column='DataOrigin',
-    filter_value='HF_Data',
     signal_column='Signal',
     group_column='Groupname',
     x_column='Duration_Seconds',
@@ -592,7 +590,17 @@ def create_axiswise_plots2(
     dict[str, plotly.graph_objects.Figure]
         Dictionary mit Achsennamen als Keys und Plotly-Figuren als Werten.
     """
-    df[axis_column] = df[axis_column].fillna("not axis specific")
+    # Assume the incoming DataFrame is already filtered by `DataOrigin` upstream.
+    # Work on a copy to avoid mutating the caller's DataFrame.
+    df_filtered = df.copy()
+    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
+
+    # Guard: required columns must exist in the provided (pre-filtered) DataFrame.
+    required_cols = [signal_column, x_column, y_column, axis_column]
+    missing = [c for c in required_cols if c not in df_filtered.columns]
+    if missing:
+        raise ValueError(f"create_axiswise_plots2: missing required columns in df (expected): {missing}")
+
     if hoverdict is None:
         hoverdict = {
             'Unit': True,
@@ -602,7 +610,6 @@ def create_axiswise_plots2(
             'HFProbeCounter': True
         }
 
-    df_filtered = df.loc[df[filter_column] == filter_value].copy()
     df_filtered[signal_column] = df_filtered[signal_column].astype(str)
 
     if color_palette is None:
@@ -619,7 +626,8 @@ def create_axiswise_plots2(
         df_filtered, y_column, groupby_col=signal_column, method=normalize_method
     )
 
-    df_gcode = filter_unique_gcodes(df, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
+    # Use the filtered DataFrame when extracting unique GCode events so annotations align with plotted data.
+    df_gcode = filter_unique_gcodes(df_filtered, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
     available_axes = df_filtered[axis_column].unique()
     axis_values = sorted(
         available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
@@ -632,9 +640,14 @@ def create_axiswise_plots2(
         if df_axis.empty:
             continue
 
-        df_axis = df_axis.groupby(signal_column, group_keys=False).apply(
-            lambda d: downsample_df(d, max_points=max_display_points)
-        )
+        # Faster deterministic downsampling: process groups and concat
+        groups = []
+        for _, grp in df_axis.groupby(signal_column, sort=False):
+            groups.append(downsample_df(grp, max_points=max_display_points))
+        if groups:
+            df_axis = pd.concat(groups)
+        else:
+            df_axis = df_axis.iloc[0:0]
 
         fig = px.line(
             df_axis,

@@ -373,6 +373,95 @@ class DuckDBLoader:
 
         return self.query_df(query, params)
     
+    def get_axiswise_plot_df(
+        self,
+        plate: str,
+        slot: Optional[float] = None,
+        *,
+        data_origin: Optional[str] = None,
+        signals: Optional[Iterable[str]] = None,
+        wcs_min: Optional[float] = None,
+        wcs_max: Optional[float] = None,
+        order_by: str = "Time",
+        limit: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """
+        Lightweight query for axiswise plotting (External/HF/LF in one DataFrame).
+
+        Returns only columns needed by create_axiswise_plots2 + optional hover fields.
+        """
+        self._ensure_plate_exists(plate)
+
+        required_cols = [
+            "Platte",
+            "Nut",
+            "Time",
+            "Duration_Seconds",
+            "WCS_Y_mm",
+            "Axis",
+            "Signal",
+            "Value",
+            "DataOrigin",
+            "Groupname",
+            "Unit",
+            "Description",
+            "HFBlockEvent_GCode",
+            "HFProbeCounter",
+        ]
+        # keep only columns that actually exist in schema
+        fields = [column for column in required_cols if column in self._valid_cols]
+        if not fields:
+            raise InvalidColumnError("No plot columns found in schema.")
+        select_clause = ", ".join(fields)
+
+        query = f"""
+            SELECT {select_clause}
+            FROM {self.table_name}
+            WHERE Platte = ?
+              AND Value IS NOT NULL
+        """
+        params: list = [plate]
+
+        if slot is not None:
+            self._ensure_plate_slot_exists(plate, slot)
+            query += " AND Nut = ?"
+            params.append(slot)
+
+        if data_origin:
+            query += " AND DataOrigin = ?"
+            params.append(data_origin)
+
+        if signals:
+            signals = list(signals)
+            placeholders = ", ".join(["?"] * len(signals))
+            query += f" AND Signal IN ({placeholders})"
+            params.extend(signals)
+
+        if wcs_min is not None:
+            query += " AND WCS_Y_mm >= ?"
+            params.append(wcs_min)
+
+        if wcs_max is not None:
+            query += " AND WCS_Y_mm <= ?"
+            params.append(wcs_max)
+
+        if order_by in self._valid_cols:
+            query += f" ORDER BY {order_by}"
+        elif "Time" in self._valid_cols:
+            query += " ORDER BY Time"
+
+        if limit is not None:
+            limit = min(int(limit), self.max_limit)
+            query += " LIMIT ?"
+            params.append(limit)
+
+        df = self.query_df(query, params)
+
+        if "Time" in df.columns:
+            df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
+
+        return df
+
     # Example:
     #
     # def my_query(self, arg1, arg2):
@@ -385,19 +474,19 @@ class DuckDBLoader:
     #     # (Optional) Add more filters/logic
     #     df = self.query_df(query, params)
     #     return df
-    
+
     # ----------------------------
     # Closing the connection to DB
     # ----------------------------
-    
-    # function to safely close the connection 
+
+    # function to safely close the connection
     def close(self) -> None:
         try:
             if getattr(self, "con", None) is not None:
                 self.con.close()
         except Exception:
             pass
-        finally: 
+        finally:
             self.con = None
 
 
