@@ -107,101 +107,7 @@ def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
     
     for x_val, an_val in zip(x_vals, an_vals):
         fig.add_vline(x=x_val, annotation_text=an_val, line_color=line_color)
-        
-# def create_plot_with_gcode_annotations(df, 
-#                                        filter_column='DataOrigin', 
-#                                        filter_value='HF_Data', 
-#                                        axis_column='Axis', 
-#                                        x_column='Duration_Seconds', 
-#                                        y_column='Value', 
-#                                        color_column='Signal', 
-#                                        hoverdict=None, 
-#                                        downsample_rate=10,
-#                                        add_vrects=False, 
-#                                        add_vlines=False, 
-#                                        vrect_color1="white", 
-#                                        vrect_color2=None,
-#                                        axis_sort_order=['X', 'Y', 'Z', 'SP', 'A', 'B', '', np.nan],
-#                                        trace_opacity=0.6):
-#     """
-#     Erstellt Plotly-Diagramme in einer bestimmten Reihenfolge basierend auf den Werten im `axis_column`.
-#     Optionale GCode-Annotationen können hinzugefügt werden.
 
-#     Parameters
-#     ----------
-#     df : pandas.DataFrame
-#         Der Eingabe-DataFrame mit den Daten für das Diagramm.
-#     filter_column : str, optional
-#         Der Name der Spalte, die zum Filtern des DataFrames verwendet wird (default ist 'DataOrigin').
-#     filter_value : any, optional
-#         Der Wert, nach dem der DataFrame gefiltert wird (default ist 'HF_Data').
-#     axis_column : str, optional
-#         Der Name der Spalte, die verwendet wird, um den DataFrame in unterschiedliche Achsen aufzuteilen (default ist 'Axis').
-#     x_column : str, optional
-#         Der Name der Spalte, die für die x-Achse verwendet wird (default ist 'Duration_Seconds').
-#     y_column : str, optional
-#         Der Name der Spalte, die für die y-Achse verwendet wird (default ist 'Value').
-#     color_column : str, optional
-#         Der Name der Spalte, die für die Färbung der Linien verwendet wird (default ist 'Signal').
-#     hoverdict : dict, optional
-#         Ein Dictionary, das zusätzliche Spalten für den Hover-Text angibt (default ist None).
-#     downsample_rate : int, optional
-#         Die Rate, mit der die Daten für die Darstellung reduziert werden (default ist 10).
-#     add_vrects : bool, optional
-#         Ob vertikale Rechtecke basierend auf den GCode-Werten hinzugefügt werden sollen (default ist False).
-#     add_vlines : bool, optional
-#         Ob vertikale Linien basierend auf den GCode-Werten hinzugefügt werden sollen (default ist False).
-#     vrect_color1 : str, optional
-#         Die erste Farbe für die Füllung der Rechtecke (default ist "white").
-#     vrect_color2 : str or None, optional
-#         Die zweite Farbe für die Füllung der Rechtecke (default ist None).
-#     axis_sort_order : list, optional
-#         Eine Liste von Werten, die die Reihenfolge bestimmt, in der die Plots für die Achsenwerte erstellt werden.
-#     trace_opacity : float, optional
-#         Die Opazität der Linien-Traces im Diagramm (default ist 0.6).
-    
-#     Returns
-#     -------
-#     None
-#         Die Funktion zeigt die erzeugten Diagramme direkt an.
-
-#     Examples
-#     --------
-#     >>> create_plot_with_gcode_annotations(df, axis_sort_order=['X', 'Y', 'Z'])
-#     """
-
-#     if hoverdict is None:
-#         hoverdict = {'Unit': True, 'Description': True, 'Groupname': True, 
-#                      'HFBlockEvent_GCode': True, 'HFProbeCounter': True}
-
-#     # Filtern und Vorbereiten der Daten
-#     df_filtered = df.loc[df[filter_column] == filter_value].copy()
-#     df_filtered[color_column] = df_filtered[color_column].astype(str)
-
-#     # Bereinigung der axis_sort_order Liste
-#     available_axis_values = df_filtered[axis_column].unique()
-#     axis_values = [axis for axis in axis_sort_order if axis in available_axis_values]
-    
-#     df_GCode = filter_unique_gcodes(df)
-
-#     # Plotten und optionales Hinzufügen von Annotationen
-#     for axis_value in axis_values:
-#         _df = df_filtered.loc[df_filtered[axis_column] == axis_value].iloc[::downsample_rate]
-#         if _df.empty:
-#             continue  # Skip if there are no matching rows for this axis value
-        
-#         fig = px.line(_df, x=x_column, y=y_column, color=color_column, 
-#                       hover_data=hoverdict, title=f"{axis_column}: {axis_value}", markers=True)
-        
-#         if add_vrects:
-#             add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='HFBlockEvent_GCode', 
-#                              color1=vrect_color1, color2=vrect_color2)
-        
-#         if add_vlines:
-#             add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='HFBlockEvent_GCode')
-
-#         fig.update_traces(opacity=trace_opacity)
-#         fig.show()
 
 def create_plot_with_gcode_annotations(df, 
                                        filter_column='DataOrigin', 
@@ -867,21 +773,23 @@ def plot_digital_twin_heatmap_gradient(
             except Exception:
                 pass
 
-    # Draw heatmap strips for each slot 
+    # Draw heatmap strips for each slot (staged: build shapes/traces/annotations lists first)
     t_slots = time.perf_counter()
     total_slot_shapes = 0
     total_slot_traces = 0
+
+    staged_shapes = []
+    staged_traces = []
+    staged_annotations = []
+
     for slot_id in slots:
         t_slot = time.perf_counter()
-        shapes_before = len(fig.layout.shapes) if fig.layout.shapes else 0
-        traces_before = len(fig.data)
 
         slot_data = df_heatmap[df_heatmap[slot_column] == slot_id].copy()
         if slot_data.empty:
             continue
 
         # Expect `slot_id` to correspond to `Nut_ID` (integer-like). Use DB mapping.
-        x_pos = None
         try:
             key = int(slot_id)
         except Exception:
@@ -909,27 +817,31 @@ def plot_digital_twin_heatmap_gradient(
             else slot_data[y_column].max()
         )
 
-        # Colored segments (above grid, under Qw line shapes)
+        # Colored segments (build shapes, add invisible scatter traces for hover)
+        added_shapes = 0
+        added_traces = 0
         for _, row in slot_data.iterrows():
             y0 = row.get("Y_min", 0)
-            t_slot_bins = time.perf_counter()
             y1 = row.get("Y_max", row[y_column])
             color = get_color(row.get(intensity_column, 0))
 
-            fig.add_shape(
-                type="rect",
-                x0=x0,
-                x1=x1,
-                y0=y0,
-                y1=y1,
-                fillcolor=color,
-                line=dict(width=0),
-                opacity=1.0,
-                layer="above",
+            staged_shapes.append(
+                dict(
+                    type="rect",
+                    x0=x0,
+                    x1=x1,
+                    y0=y0,
+                    y1=y1,
+                    fillcolor=color,
+                    line=dict(width=0),
+                    opacity=1.0,
+                    layer="above",
+                )
             )
+            added_shapes += 1
 
             # invisible scatter for hover
-            fig.add_trace(
+            staged_traces.append(
                 go.Scatter(
                     x=[(x0 + x1) / 2],
                     y=[(y0 + y1) / 2],
@@ -945,27 +857,33 @@ def plot_digital_twin_heatmap_gradient(
                     showlegend=False,
                 )
             )
+            added_traces += 1
 
         # Slot outline (above)
-        fig.add_shape(
-            type="rect",
-            x0=x0,
-            x1=x1,
-            y0=0,
-            y1=y_max,
-            fillcolor="rgba(0,0,0,0)",
-            line=dict(color=border_color, width=2),
-            layer="above",
+        staged_shapes.append(
+            dict(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=0,
+                y1=y_max,
+                fillcolor="rgba(0,0,0,0)",
+                line=dict(color=border_color, width=2),
+                layer="above",
+            )
         )
+        added_shapes += 1
 
         # Slot label N#
-        fig.add_annotation(
-            x=x_pos,
-            y=-6,
-            text=f"N{int(slot_id)}",
-            showarrow=False,
-            font=dict(size=10, color=border_color),
-            yanchor="top",
+        staged_annotations.append(
+            dict(
+                x=x_pos,
+                y=-6,
+                text=f"N{int(slot_id)}",
+                showarrow=False,
+                font=dict(size=10, color=border_color),
+                yanchor="top",
+            )
         )
 
         # Spindle speed label (if available)
@@ -974,27 +892,42 @@ def plot_digital_twin_heatmap_gradient(
                 rpm = int(
                     df_summary[df_summary["Nut_ID"] == slot_id]["Drehzahl"].iloc[0]
                 )
-                fig.add_annotation(
-                    x=x_pos,
-                    y=1,
-                    text=f"{rpm} rpm",
-                    showarrow=False,
-                    font=dict(size=8, color=border_color),
-                    textangle=-90,
-                    yanchor="bottom",
+                staged_annotations.append(
+                    dict(
+                        x=x_pos,
+                        y=1,
+                        text=f"{rpm} rpm",
+                        showarrow=False,
+                        font=dict(size=8, color=border_color),
+                        textangle=-90,
+                        yanchor="bottom",
+                    )
                 )
             except Exception:
                 pass
 
-        shapes_after = len(fig.layout.shapes) if fig.layout.shapes else 0
-        traces_after = len(fig.data)
-        added_shapes = shapes_after - shapes_before
-        added_traces = traces_after - traces_before
-        total_slot_shapes += max(added_shapes, 0)
-        total_slot_traces += max(added_traces, 0)
+        total_slot_shapes += added_shapes
+        total_slot_traces += added_traces
         log(
             f"slot N{slot_id}: {len(slot_data)} bins, +{added_shapes} shapes, +{added_traces} traces, {time.perf_counter() - t_slot:.3f}s"
         )
+
+    # Attach staged shapes/traces/annotations in bulk
+    existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+    existing_shapes.extend(staged_shapes)
+    fig.update_layout(shapes=existing_shapes)
+
+    if staged_traces:
+        fig.add_traces(staged_traces)
+
+    existing_annotations = list(fig.layout.annotations) if fig.layout.annotations else []
+    existing_annotations.extend(staged_annotations)
+    fig.update_layout(annotations=existing_annotations)
+
+    log(
+        f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
+        f"added {total_slot_shapes} shapes and {total_slot_traces} traces"
+    )
 
     log(
         f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
