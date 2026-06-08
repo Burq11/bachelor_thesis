@@ -1,4 +1,5 @@
 from src import provider
+from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 from scipy.signal import butter, filtfilt
@@ -35,100 +36,82 @@ def extract_unique_signal_values(df, origin="LF_Data"):
     )
 
 
-def summarize_chatter_cases(df):
+
+
+def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = None) -> pd.DataFrame:
+    """DuckDB-first summary for the heatmap overlays (no per-slot raw loads).
+
+    Produces a DataFrame compatible with downstream plotting code that expects the
+    columns from `summarize_chatter_cases` / `analyze_platte`.
+
+    Notes:
+    - Returns *only* slots where chatter signal rows exist (same net effect as the
+      legacy summarizer which returns an empty DataFrame for slots without R310).
+    - Keeps column names stable to avoid any visual/logic changes.
     """
-    Gibt eine Übersicht über Chatter-Fälle (0 und 1), wenn vorhanden.
-    Berücksichtigt nur vorhandene Fälle im Signal 'R310'.
+
+    meta = provider.slot_metadata_summary(str(plate_number), data_origin=data_origin)
+    chatter = provider.slot_chatter_cases_summary(str(plate_number), data_origin=data_origin)
+
+    if chatter is None or chatter.empty:
+        return pd.DataFrame(columns=[
+            "Chatter",
+            "Y_max",
+            "Drehzahl",
+            "Werkzeugradius",
+            "X_Position_Nut",
+            "Werkzeug",
+            "Nut_ID",
+            "Platte",
+            "Nut",
+        ])
+
+    df = chatter.merge(meta, on="Nut", how="left")
+    df["Nut_ID"] = df.get("Nut_ID", df["Nut"])
+    df["Platte"] = str(plate_number)
+    return df[[
+        "Chatter",
+        "Y_max",
+        "Drehzahl",
+        "Werkzeugradius",
+        "X_Position_Nut",
+        "Werkzeug",
+        "Nut_ID",
+        "Platte",
+        "Nut",
+    ]]
+
+
+def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwatgs: dict | None = None):
     """
+    SQL-first implementation: produce per-slot summaries for a plate using
+    `summarize_chatter_cases_sql` (no per-slot raw DataFrame loading).
 
-    chatter_signal = "R310"
-    ratter_df = df[df["Signal"] == chatter_signal]
+    Keeps the original function signature for compatibility but ignores the
+    legacy `summarize_fn` when present.
 
-    # Prüfen, ob Chatter überhaupt aufgetreten ist
-    unique_vals = ratter_df["Value"].dropna().unique()
-
-    # Gemeinsame Parameter
-    drehzahl = df.loc[df["Signal"] == "R330", "Value"].min()
-    werkzeugradius = df.loc[df["Signal"] == "actToolRadius[u1]", "Value"].min()
-    x_pos = df.loc[df["Signal"] == "R321", "Value"].min()
-    werkzeug = df.loc[df["Signal"] == "actToolIdent[u1,1]", "Value_String"].unique()[0]
-    slot_id = df.loc[df["Signal"] == "R319", "Value"].min()
-
-    result = []
-
-    # Kein Chatter
-    if 0.0 in unique_vals:
-        y_max_no_chatter = ratter_df.loc[ratter_df["Value"] == 0.0, "WCS_Y_mm"].max()
-        result.append(
-            {
-                "Chatter": 0,
-                "Y_max": y_max_no_chatter,
-                "Drehzahl": drehzahl,
-                "Werkzeugradius": werkzeugradius,
-                "X_Position_Nut": x_pos,
-                "Werkzeug": werkzeug,
-                "Nut_ID": slot_id,
-            }
-        )
-
-    # Chatter erkannt
-    if 1.0 in unique_vals:
-        y_max_chatter = df["WCS_Y_mm"].max()
-        result.append(
-            {
-                "Chatter": 1,
-                "Y_max": y_max_chatter,
-                "Drehzahl": drehzahl,
-                "Werkzeugradius": werkzeugradius,
-                "X_Position_Nut": x_pos,
-                "Werkzeug": werkzeug,
-                "Nut_ID": slot_id,
-            }
-        )
-
-    return pd.DataFrame(result)
-
-
-def analyze_platte(plate_number: str, summarize_fn, plot_fn, *, df_kwatgs: dict | None = None):
+    Returns
+    -------
+    pd.DataFrame, object
+        (df_summary, fig) where `fig` is the result of `plot_fn(df_summary)` if
+        `plot_fn` is provided, else `None`.
     """
-    Neue Architektur:
-    - acces Slots via provider.slots(plate)
-    - load data via provider.df(plate, slot, ...)
-    - summary and plotting like before
-    """
-    #if the functions is called with more params
+    # Keep signature compatibility
     df_kwatgs = df_kwatgs or {}
-    
-    # get all slots for the Plate
-    slots = provider.slots(plate_number)
 
-    zusammenfassungen = []
-    for slot in tqdm(slots, desc=f"Platte {plate_number}"):
-        try:
-            # Load data from DuckDB
-            df = provider.df(plate_number, slot)
-
-            if df is None or len(df) == 0:
-                continue
-
-            df_summary = summarize_fn(df)
-            # context
-            df_summary["Platte"] = plate_number
-            df_summary["Nut"] = slot
-
-            zusammenfassungen.append(df_summary)
-
-        except Exception as e:
-            print(f"Fehler bei Platte {plate_number}, Nut {slot}: {e}")
-
-        
-    if not zusammenfassungen:
-        print(f"[INFO] Keine gültigen Daten für Platte {plate_number} gefunden.")
+    # Use the SQL-first summarizer
+    df_summary = summarize_chatter_cases_sql(str(plate_number))
+    if df_summary is None or df_summary.empty:
         return pd.DataFrame(), None
 
-    df_summary_gesamt = pd.concat(zusammenfassungen, ignore_index=True)
-    fig = plot_fn(df_summary_gesamt)
-    return df_summary_gesamt, fig
+    fig = None
+    if plot_fn is not None:
+        try:
+            fig = plot_fn(df_summary)
+        except Exception as e:
+            print(f"Could not build plot from df_summary: {e}")
+
+    return df_summary, fig
 
 
 
@@ -382,105 +365,11 @@ def count_value_combinations(df, columns, sort_by_count=True, na_rep='NaN'):
     return counted
 
 ## HEATMAP
-def prepare_equal_bins_heatmap(df, 
-                              slot_column='Nut', 
-                              y_column='WCS_Y_mm', 
-                              signal_column='Signal', 
-                              axis_column='Axis', 
-                              origin_column='DataOrigin', 
-                              value_column='Value',
-                              target_signal='X', 
-                              target_origin='Oscilloscope',
-                              bin_size_mm=20):
-    """
-    Prepare heatmap data with equal Y-bins (in mm) per slot.
-    Each slot is binned independently starting from Y=0 and trimmed to its true Y_max.
-    The last bin is shortened if needed.
-    """
-
-    # Filter for the relevant signal and origin
-    df_signal = df[(df[axis_column] == target_signal) & (df[origin_column] == target_origin)].copy()
-    if df_signal.empty:
-        return pd.DataFrame()
-
-    results = []
-
-    # Process each slot separately
-    for slot_id in sorted(df_signal[slot_column].unique()):
-        slot_data = df_signal[df_signal[slot_column] == slot_id].copy()
-        if slot_data.empty:
-            continue
-
-        # Always start from Y=0 and go to the maximum Y value for this slot
-        y_max = slot_data[y_column].max()
+# NOTE: legacy per-slot DataFrame-based heatmap helpers were removed in favor
+# of DuckDB-first implementations. Use `prepare_equal_bins_heatmap_sql` and
+# `materialize_heatmap_cache` for heatmap computations.
         
-        # Define bin edges starting from 0 and going to y_max
-        y_edges = np.arange(0, y_max + bin_size_mm, bin_size_mm)
-        # Ensure the last edge doesn't exceed the actual data range
-        if y_edges[-1] > y_max:
-            y_edges[-1] = y_max
-
-        y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-
-        # Digitize Y positions for this slot
-        bin_indices = np.digitize(slot_data[y_column], y_edges) - 1
-
-        for i in range(len(y_centers)):
-            mask = bin_indices == i
-            if mask.sum() > 0:
-                bin_values = slot_data[value_column].values[mask]
-                rms_value = np.sqrt(np.mean(bin_values ** 2))
-                results.append({
-                    slot_column: slot_id,
-                    'Y_bin_center': y_centers[i],
-                    'RMS_raw': rms_value,
-                    'Y_min': y_edges[i],
-                    'Y_max': y_edges[i + 1]
-                })
-
-    return pd.DataFrame(results)
-        
-def analyze_platte_heatmap(platte_nummer, processed_path, summarize_fn, plot_fn):
-    suchmuster = f"Platte_{platte_nummer}_*Nut_*.parquet"
-    parquet_files = sorted(processed_path.glob(suchmuster))
-    
-    all_heatmap_data = []
-    for path in parquet_files:
-        try:
-            df = pd.read_parquet(path)
-            df_heatmap = summarize_fn(df)
-            if not df_heatmap.empty:
-                all_heatmap_data.append(df_heatmap)
-        except Exception as e:
-            print(f"Error processing {path.name}: {e}")
-    
-    if not all_heatmap_data:
-        print(f"No valid heatmap data found for plate {platte_nummer}")
-        return pd.DataFrame(), go.Figure()
-    
-    # Combine all heatmap data once
-    df_heatmap_combined = pd.concat(all_heatmap_data, ignore_index=True)
-
-    # Single-step global normalization (Normalization method: Min-Max )
-    global_min = df_heatmap_combined['RMS_raw'].min()
-    global_max = df_heatmap_combined['RMS_raw'].max()
-    if global_max > global_min:
-        df_heatmap_combined['RMS_normalized_global'] = (
-            (df_heatmap_combined['RMS_raw'] - global_min) / (global_max - global_min)
-        )
-    else:
-        df_heatmap_combined['RMS_normalized_global'] = 0
-    
-    # Get slot-position summary if possible
-    try:
-        from src.data_processing import summarize_chatter_cases, analyze_platte
-        df_summary, _ = analyze_platte(platte_nummer, processed_path, summarize_chatter_cases, lambda x: None)
-    except Exception as e:
-        print(f"Could not compute df_summary: {e}")
-        df_summary = None
-    
-    fig = plot_fn(df_heatmap_combined, df_summary=df_summary)
-    return df_heatmap_combined, fig
+# legacy parquet-based heatmap aggregation removed; prefer SQL-based helpers
 
 ########### PCA ###############
 
@@ -647,3 +536,573 @@ def reduce_redundant_signals(df, corr_threshold=0.9):
     corr_reduced = df_reduced.corr()
 
     return df_reduced, corr_reduced, groups, kept, dropped
+
+def prepare_equal_bins_heatmap_sql(
+    platte,
+    bin_size_mm=10,
+    target_signal='X',
+    target_origin='Oscilloscope',
+    *,
+    compute_normalized_global: bool = False,
+    prefer_cache: bool = True,
+):
+    """
+    Erstellt Heatmap-Daten direkt aus der DuckDB-Datenbank mit SQL.
+    - Binning in Y-Richtung (in mm) für jeden Slot.
+    - Berechnung des RMS-Wertes pro Bin.
+    - Gibt ein DataFrame mit den Ergebnissen zurück.
+    """
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    con = provider.loader_global.con
+    table = provider.loader_global.table_name
+
+    def _duckdb_table_exists(connection, name: str) -> bool:
+        try:
+            return bool(
+                connection.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'main' AND lower(table_name) = lower(?)
+                    LIMIT 1
+                    """,
+                    [name],
+                ).fetchone()
+            )
+        except Exception:
+            return False
+
+    def _duckdb_table_columns(connection, name: str) -> set[str]:
+        try:
+            rows = connection.execute(f"PRAGMA table_info('{name}')").fetchall()
+        except Exception:
+            return set()
+        # PRAGMA table_info: (cid, name, type, notnull, dflt_value, pk)
+        return {str(r[1]) for r in rows}
+
+    # Phase 6: prefer materialized cache table when present.
+    cache_table = "heatmap_bins_cache"
+    if prefer_cache and _duckdb_table_exists(con, cache_table):
+        cols = _duckdb_table_columns(con, cache_table)
+        want_normalized = compute_normalized_global and "RMS_normalized_global" in cols
+        normalized_select = ", RMS_normalized_global" if want_normalized else ""
+
+        df_cached = con.execute(
+            f"""
+            SELECT
+                Nut,
+                Y_min,
+                Y_max,
+                Y_bin_center,
+                RMS_raw
+                {normalized_select}
+            FROM {cache_table}
+            WHERE Platte = ?
+              AND Axis = ?
+              AND DataOrigin = ?
+              AND bin_size_mm = ?
+            ORDER BY Nut, Y_min
+            """,
+            [str(platte), str(target_signal), str(target_origin), float(bin_size_mm)],
+        ).fetchdf()
+
+        # Only accept cache hit when it contains what the caller requested.
+        if df_cached is not None and not df_cached.empty:
+            if not compute_normalized_global or "RMS_normalized_global" in df_cached.columns:
+                return df_cached
+
+    # Notes on schema:
+    # - Single table with columns incl. Platte (VARCHAR) + Nut (DOUBLE)
+    # - We bin WCS_Y_mm into equal bins per Nut starting at 0
+    # - For the last bin, we truncate Y_max to the actual slot max(WCS_Y_mm)
+    normalized_select = ""
+    if compute_normalized_global:
+        normalized_select = """
+        ,
+        CASE
+            WHEN (MAX(RMS_raw) OVER () > MIN(RMS_raw) OVER ())
+            THEN (RMS_raw - MIN(RMS_raw) OVER ()) / (MAX(RMS_raw) OVER () - MIN(RMS_raw) OVER ())
+            ELSE 0.0
+        END AS RMS_normalized_global
+        """
+
+    query = f"""
+    WITH SignalData AS (
+        SELECT
+            Nut,
+            WCS_Y_mm,
+            Value
+        FROM {table}
+        WHERE Platte = ?
+          AND Axis = ?
+          AND DataOrigin = ?
+          AND Nut IS NOT NULL
+          AND WCS_Y_mm IS NOT NULL
+          AND Value IS NOT NULL
+                    AND WCS_Y_mm >= 0
+    ),
+    SlotMaxY AS (
+        SELECT
+            Nut,
+            MAX(WCS_Y_mm) AS slot_y_max
+        FROM SignalData
+        GROUP BY Nut
+    ),
+    BinnedData AS (
+        SELECT
+            sd.Nut,
+            sd.Value,
+            floor(sd.WCS_Y_mm / ?) * ? AS y_min,
+            smy.slot_y_max AS slot_y_max
+        FROM SignalData sd
+        JOIN SlotMaxY smy USING (Nut)
+        WHERE sd.WCS_Y_mm < smy.slot_y_max
+    ),
+    HeatmapBins AS (
+        SELECT
+            Nut,
+            y_min AS Y_min,
+            least(y_min + ?, slot_y_max) AS Y_max,
+            (y_min + least(y_min + ?, slot_y_max)) / 2.0 AS Y_bin_center,
+            sqrt(avg(Value * Value)) AS RMS_raw
+        FROM BinnedData
+        GROUP BY Nut, y_min, slot_y_max
+    )
+    SELECT
+        Nut,
+        Y_min,
+        Y_max,
+        Y_bin_center,
+        RMS_raw
+        {normalized_select}
+    FROM HeatmapBins
+    ORDER BY Nut, Y_min
+    """
+
+    params = [
+        str(platte),
+        str(target_signal),
+        str(target_origin),
+        float(bin_size_mm),
+        float(bin_size_mm),
+        float(bin_size_mm),
+        float(bin_size_mm),
+    ]
+    return con.execute(query, params).fetchdf()
+
+
+def materialize_heatmap_cache(
+    plates: list[str] | None = None,
+    *,
+    bin_size_mm: float = 10.0,
+    target_signal: str = "X",
+    target_origin: str = "Oscilloscope",
+    overwrite: bool = True,
+    cache_db_path: Path | None = None,
+) -> None:
+    """Materialize derived tables inside DuckDB for fast interactive lookups.
+
+    This is an opt-in Phase 6 helper. It does NOT change plotting semantics.
+    It creates (if needed) and populates `heatmap_bins_cache`.
+
+    Notes
+    -----
+        - Requires a writable DuckDB connection. If `provider` is initialized with
+            `read_only=False`, we reuse that connection. Otherwise, we try to open a
+            separate read-write connection.
+            Note: DuckDB does not allow opening the same DB file with a different
+            configuration inside one process (e.g., RO + RW). In that case, re-init
+            the provider with `read_only=False` (or run this in a separate process).
+    - Cache invalidation is manual by default: call again with overwrite=True.
+    """
+
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    import duckdb
+
+    if plates is None:
+        plates = [str(p) for p in provider.plates()]
+    plates = [str(p) for p in plates]
+
+    cache_table = "heatmap_bins_cache"
+
+    con_rw = None
+    owns_connection = False
+
+    try:
+        if cache_db_path is not None:
+            # Materialize into a separate cache DB by computing in Python and
+            # inserting into the cache DB to avoid cross-DB ATTACH issues.
+            con_rw = duckdb.connect(str(cache_db_path), read_only=False)
+            owns_connection = True
+
+            # create cache table if missing
+            con_rw.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {cache_table} (
+                    Platte VARCHAR,
+                    Nut DOUBLE,
+                    Axis VARCHAR,
+                    DataOrigin VARCHAR,
+                    bin_size_mm DOUBLE,
+                    Y_min DOUBLE,
+                    Y_max DOUBLE,
+                    Y_bin_center DOUBLE,
+                    RMS_raw DOUBLE,
+                    RMS_normalized_global DOUBLE
+                )
+                """
+            )
+
+            for plate in plates:
+                if overwrite:
+                    con_rw.execute(
+                        f"""
+                        DELETE FROM {cache_table}
+                        WHERE Platte = ? AND Axis = ? AND DataOrigin = ? AND bin_size_mm = ?
+                        """,
+                        [plate, str(target_signal), str(target_origin), float(bin_size_mm)],
+                    )
+
+                df_bins = prepare_equal_bins_heatmap_sql(
+                    plate,
+                    bin_size_mm=bin_size_mm,
+                    target_signal=target_signal,
+                    target_origin=target_origin,
+                    compute_normalized_global=True,
+                    prefer_cache=False,
+                )
+                if df_bins is None or df_bins.empty:
+                    continue
+
+                df_insert = df_bins.copy()
+                df_insert['Platte'] = plate
+                df_insert['Axis'] = str(target_signal)
+                df_insert['DataOrigin'] = str(target_origin)
+                df_insert['bin_size_mm'] = float(bin_size_mm)
+
+                if 'RMS_normalized_global' not in df_insert.columns:
+                    vmin = df_insert['RMS_raw'].min()
+                    vmax = df_insert['RMS_raw'].max()
+                    if vmax > vmin:
+                        df_insert['RMS_normalized_global'] = (df_insert['RMS_raw'] - vmin) / (vmax - vmin)
+                    else:
+                        df_insert['RMS_normalized_global'] = 0.0
+
+                cols = [
+                    'Platte', 'Nut', 'Axis', 'DataOrigin', 'bin_size_mm',
+                    'Y_min', 'Y_max', 'Y_bin_center', 'RMS_raw', 'RMS_normalized_global'
+                ]
+
+                con_rw.register('tmp_bins', df_insert[cols])
+                con_rw.execute(f"INSERT INTO {cache_table} SELECT * FROM tmp_bins")
+
+        else:
+            # Materialize in-place in the provider DB using SQL insert (existing path).
+            db_path = provider.loader_global.db_path
+            source_table = provider.loader_global.table_name
+
+            if getattr(provider.loader_global, "read_only", True) is False:
+                con_rw = provider.loader_global.con
+            else:
+                try:
+                    con_rw = duckdb.connect(str(db_path), read_only=False)
+                    owns_connection = True
+                except duckdb.ConnectionException as e:
+                    raise RuntimeError(
+                        "Cannot open a read-write DuckDB connection while an existing "
+                        "read-only connection is open in this process. "
+                        "Re-run with `provider.close(); provider.init(read_only=False)` "
+                        "and then call materialize_heatmap_cache(...)."
+                    ) from e
+
+            con_rw.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {cache_table} (
+                    Platte VARCHAR,
+                    Nut DOUBLE,
+                    Axis VARCHAR,
+                    DataOrigin VARCHAR,
+                    bin_size_mm DOUBLE,
+                    Y_min DOUBLE,
+                    Y_max DOUBLE,
+                    Y_bin_center DOUBLE,
+                    RMS_raw DOUBLE,
+                    RMS_normalized_global DOUBLE
+                )
+                """
+            )
+
+            try:
+                con_rw.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{cache_table}_lookup ON {cache_table} (Platte, Axis, DataOrigin, bin_size_mm, Nut, Y_min)"
+                )
+            except Exception:
+                pass
+
+            for plate in plates:
+                if overwrite:
+                    con_rw.execute(
+                        f"""
+                        DELETE FROM {cache_table}
+                        WHERE Platte = ? AND Axis = ? AND DataOrigin = ? AND bin_size_mm = ?
+                        """,
+                        [plate, str(target_signal), str(target_origin), float(bin_size_mm)],
+                    )
+
+                # Insert using the exact same semantics as prepare_equal_bins_heatmap_sql
+                con_rw.execute(
+                    f"""
+                    INSERT INTO {cache_table}
+                    WITH SignalData AS (
+                        SELECT
+                            Nut,
+                            WCS_Y_mm,
+                            Value
+                        FROM {source_table}
+                        WHERE Platte = ?
+                          AND Axis = ?
+                          AND DataOrigin = ?
+                          AND Nut IS NOT NULL
+                          AND WCS_Y_mm IS NOT NULL
+                          AND Value IS NOT NULL
+                          AND WCS_Y_mm >= 0
+                    ),
+                    SlotMaxY AS (
+                        SELECT
+                            Nut,
+                            MAX(WCS_Y_mm) AS slot_y_max
+                        FROM SignalData
+                        GROUP BY Nut
+                    ),
+                    BinnedData AS (
+                        SELECT
+                            sd.Nut,
+                            sd.Value,
+                            floor(sd.WCS_Y_mm / ?) * ? AS y_min,
+                            smy.slot_y_max AS slot_y_max
+                        FROM SignalData sd
+                        JOIN SlotMaxY smy USING (Nut)
+                        WHERE sd.WCS_Y_mm < smy.slot_y_max
+                    ),
+                    HeatmapBins AS (
+                        SELECT
+                            Nut,
+                            y_min AS Y_min,
+                            least(y_min + ?, slot_y_max) AS Y_max,
+                            (y_min + least(y_min + ?, slot_y_max)) / 2.0 AS Y_bin_center,
+                            sqrt(avg(Value * Value)) AS RMS_raw
+                        FROM BinnedData
+                        GROUP BY Nut, y_min, slot_y_max
+                    )
+                    SELECT
+                        ? AS Platte,
+                        Nut,
+                        ? AS Axis,
+                        ? AS DataOrigin,
+                        ? AS bin_size_mm,
+                        Y_min,
+                        Y_max,
+                        Y_bin_center,
+                        RMS_raw,
+                        CASE
+                            WHEN (MAX(RMS_raw) OVER () > MIN(RMS_raw) OVER ())
+                            THEN (RMS_raw - MIN(RMS_raw) OVER ()) / (MAX(RMS_raw) OVER () - MIN(RMS_raw) OVER ())
+                            ELSE 0.0
+                        END AS RMS_normalized_global
+                    FROM HeatmapBins
+                    """,
+                    [
+                        plate,
+                        str(target_signal),
+                        str(target_origin),
+                        float(bin_size_mm),
+                        float(bin_size_mm),
+                        float(bin_size_mm),
+                        float(bin_size_mm),
+                    ],
+                )
+
+    finally:
+        if owns_connection and con_rw is not None:
+            con_rw.close()
+
+
+def get_min_max_amplitudes_sql_from_db(
+    platte,
+    *,
+    bin_size_mm=10,
+    target_signal='X',
+    target_origin='Oscilloscope',
+):
+    """Compute true min/max amplitude mapping without pandas extrema scan.
+
+    Semantics are kept consistent with `get_min_max_amplitudes_sql`:
+    - Find the heatmap bin with globally smallest RMS_raw and take MIN(Value) in that bin.
+    - Find the heatmap bin with globally largest RMS_raw and take MAX(Value) in that bin.
+
+    Tie-breaking matches pandas `idxmin/idxmax` on a DataFrame ordered by (Nut, Y_min):
+    - min: ORDER BY RMS_raw ASC, Nut ASC, Y_min ASC
+    - max: ORDER BY RMS_raw DESC, Nut ASC, Y_min ASC
+    """
+
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    con = provider.loader_global.con
+    table = provider.loader_global.table_name
+
+    query = f"""
+    WITH SignalData AS (
+        SELECT
+            Nut,
+            WCS_Y_mm,
+            Value
+        FROM {table}
+        WHERE Platte = ?
+          AND Axis = ?
+          AND DataOrigin = ?
+          AND Nut IS NOT NULL
+          AND WCS_Y_mm IS NOT NULL
+          AND Value IS NOT NULL
+          AND WCS_Y_mm >= 0
+    ),
+    SlotMaxY AS (
+        SELECT
+            Nut,
+            MAX(WCS_Y_mm) AS slot_y_max
+        FROM SignalData
+        GROUP BY Nut
+    ),
+    BinnedData AS (
+        SELECT
+            sd.Nut,
+            sd.Value,
+            floor(sd.WCS_Y_mm / ?) * ? AS y_min,
+            smy.slot_y_max AS slot_y_max
+        FROM SignalData sd
+        JOIN SlotMaxY smy USING (Nut)
+        WHERE sd.WCS_Y_mm < smy.slot_y_max
+    ),
+    HeatmapBins AS (
+        SELECT
+            Nut,
+            y_min AS Y_min,
+            least(y_min + ?, slot_y_max) AS Y_max,
+            sqrt(avg(Value * Value)) AS RMS_raw
+        FROM BinnedData
+        GROUP BY Nut, y_min, slot_y_max
+    ),
+    MinBin AS (
+        SELECT Nut, Y_min, Y_max
+        FROM HeatmapBins
+        ORDER BY RMS_raw ASC, Nut ASC, Y_min ASC
+        LIMIT 1
+    ),
+    MaxBin AS (
+        SELECT Nut, Y_min, Y_max
+        FROM HeatmapBins
+        ORDER BY RMS_raw DESC, Nut ASC, Y_min ASC
+        LIMIT 1
+    )
+    SELECT
+        MIN(CASE WHEN Nut = (SELECT Nut FROM MinBin)
+                  AND WCS_Y_mm BETWEEN (SELECT Y_min FROM MinBin) AND (SELECT Y_max FROM MinBin)
+            THEN Value END) AS min_amplitude,
+        MAX(CASE WHEN Nut = (SELECT Nut FROM MaxBin)
+                  AND WCS_Y_mm BETWEEN (SELECT Y_min FROM MaxBin) AND (SELECT Y_max FROM MaxBin)
+            THEN Value END) AS max_amplitude
+    FROM {table}
+    WHERE Platte = ?
+      AND Axis = ?
+      AND DataOrigin = ?
+      AND (
+            (Nut = (SELECT Nut FROM MinBin)
+             AND WCS_Y_mm BETWEEN (SELECT Y_min FROM MinBin) AND (SELECT Y_max FROM MinBin))
+         OR (Nut = (SELECT Nut FROM MaxBin)
+             AND WCS_Y_mm BETWEEN (SELECT Y_min FROM MaxBin) AND (SELECT Y_max FROM MaxBin))
+          )
+    """
+
+    params = [
+        str(platte),
+        str(target_signal),
+        str(target_origin),
+        float(bin_size_mm),
+        float(bin_size_mm),
+        float(bin_size_mm),
+        str(platte),
+        str(target_signal),
+        str(target_origin),
+    ]
+
+    result = con.execute(query, params).fetchone()
+    if not result:
+        return 0.0, 0.0
+
+    true_min = result[0] if result[0] is not None else 0.0
+    true_max = result[1] if result[1] is not None else 0.0
+    return true_min, true_max
+
+def get_min_max_amplitudes_sql(df_heatmap, platte):
+    """
+    Ermittelt die minimalen und maximalen Schwingungsamplituden für die Bins
+    mit dem global niedrigsten und höchsten RMS-Wert direkt aus der DuckDB.
+    """
+    if df_heatmap.empty:
+        return 0.0, 0.0
+
+    if provider.loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+
+    con = provider.loader_global.con
+    table = provider.loader_global.table_name
+
+    # Finde die Bins mit min/max RMS
+    idx_min_rms = df_heatmap['RMS_raw'].idxmin()
+    idx_max_rms = df_heatmap['RMS_raw'].idxmax()
+
+    bin_min = df_heatmap.loc[idx_min_rms]
+    bin_max = df_heatmap.loc[idx_max_rms]
+
+    # Extrahiere die Werte für die SQL-Abfrage (Nut is DOUBLE in DB)
+    slot_min = float(bin_min['Nut'])
+    slot_max = float(bin_max['Nut'])
+    y_min_min = float(bin_min['Y_min'])
+    y_max_min = float(bin_min['Y_max'])
+    y_min_max = float(bin_max['Y_min'])
+    y_max_max = float(bin_max['Y_max'])
+
+    # Keep original semantics from old widget code:
+    # - stable bin -> MIN(Value)
+    # - chatter bin -> MAX(Value)
+    query = f"""
+    SELECT
+        MIN(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS min_amplitude,
+        MAX(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS max_amplitude
+    FROM {table}
+    WHERE Platte = ?
+      AND Axis = 'X'
+      AND DataOrigin = 'Oscilloscope'
+      AND (
+            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?) OR
+            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?)
+          )
+    """
+
+    params = [
+        slot_min, y_min_min, y_max_min,
+        slot_max, y_min_max, y_max_max,
+        str(platte),
+        slot_min, y_min_min, y_max_min,
+        slot_max, y_min_max, y_max_max,
+    ]
+    result = con.execute(query, params).fetchone()
+    
+    true_min = result[0] if result[0] is not None else 0.0
+    true_max = result[1] if result[1] is not None else 0.0
+    
+    return true_min, true_max

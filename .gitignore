@@ -20,17 +20,21 @@ Thumbs.db
 .vscode/
 .idea/
 
+# ---- Local worktrees (branch comparisons) ----
+.worktrees/
+
 # ---- Data / databases / outputs ----
 */data/*.duckdb
 */data/
 */results/
 *.log
+!db_folder/.gitkeep
 data/2025-05_Oxford_und_Rebecka/
 
 # ---- tests outputs ----
 tests/tests_equiv
-tests/*
-oxford_notebook/notebooks/notebook_test.ipynb
+
+oxford_notebook/testing/
 
 # ---- Copilot ----
 .github/

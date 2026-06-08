@@ -107,101 +107,7 @@ def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
     
     for x_val, an_val in zip(x_vals, an_vals):
         fig.add_vline(x=x_val, annotation_text=an_val, line_color=line_color)
-        
-# def create_plot_with_gcode_annotations(df, 
-#                                        filter_column='DataOrigin', 
-#                                        filter_value='HF_Data', 
-#                                        axis_column='Axis', 
-#                                        x_column='Duration_Seconds', 
-#                                        y_column='Value', 
-#                                        color_column='Signal', 
-#                                        hoverdict=None, 
-#                                        downsample_rate=10,
-#                                        add_vrects=False, 
-#                                        add_vlines=False, 
-#                                        vrect_color1="white", 
-#                                        vrect_color2=None,
-#                                        axis_sort_order=['X', 'Y', 'Z', 'SP', 'A', 'B', '', np.nan],
-#                                        trace_opacity=0.6):
-#     """
-#     Erstellt Plotly-Diagramme in einer bestimmten Reihenfolge basierend auf den Werten im `axis_column`.
-#     Optionale GCode-Annotationen können hinzugefügt werden.
 
-#     Parameters
-#     ----------
-#     df : pandas.DataFrame
-#         Der Eingabe-DataFrame mit den Daten für das Diagramm.
-#     filter_column : str, optional
-#         Der Name der Spalte, die zum Filtern des DataFrames verwendet wird (default ist 'DataOrigin').
-#     filter_value : any, optional
-#         Der Wert, nach dem der DataFrame gefiltert wird (default ist 'HF_Data').
-#     axis_column : str, optional
-#         Der Name der Spalte, die verwendet wird, um den DataFrame in unterschiedliche Achsen aufzuteilen (default ist 'Axis').
-#     x_column : str, optional
-#         Der Name der Spalte, die für die x-Achse verwendet wird (default ist 'Duration_Seconds').
-#     y_column : str, optional
-#         Der Name der Spalte, die für die y-Achse verwendet wird (default ist 'Value').
-#     color_column : str, optional
-#         Der Name der Spalte, die für die Färbung der Linien verwendet wird (default ist 'Signal').
-#     hoverdict : dict, optional
-#         Ein Dictionary, das zusätzliche Spalten für den Hover-Text angibt (default ist None).
-#     downsample_rate : int, optional
-#         Die Rate, mit der die Daten für die Darstellung reduziert werden (default ist 10).
-#     add_vrects : bool, optional
-#         Ob vertikale Rechtecke basierend auf den GCode-Werten hinzugefügt werden sollen (default ist False).
-#     add_vlines : bool, optional
-#         Ob vertikale Linien basierend auf den GCode-Werten hinzugefügt werden sollen (default ist False).
-#     vrect_color1 : str, optional
-#         Die erste Farbe für die Füllung der Rechtecke (default ist "white").
-#     vrect_color2 : str or None, optional
-#         Die zweite Farbe für die Füllung der Rechtecke (default ist None).
-#     axis_sort_order : list, optional
-#         Eine Liste von Werten, die die Reihenfolge bestimmt, in der die Plots für die Achsenwerte erstellt werden.
-#     trace_opacity : float, optional
-#         Die Opazität der Linien-Traces im Diagramm (default ist 0.6).
-    
-#     Returns
-#     -------
-#     None
-#         Die Funktion zeigt die erzeugten Diagramme direkt an.
-
-#     Examples
-#     --------
-#     >>> create_plot_with_gcode_annotations(df, axis_sort_order=['X', 'Y', 'Z'])
-#     """
-
-#     if hoverdict is None:
-#         hoverdict = {'Unit': True, 'Description': True, 'Groupname': True, 
-#                      'HFBlockEvent_GCode': True, 'HFProbeCounter': True}
-
-#     # Filtern und Vorbereiten der Daten
-#     df_filtered = df.loc[df[filter_column] == filter_value].copy()
-#     df_filtered[color_column] = df_filtered[color_column].astype(str)
-
-#     # Bereinigung der axis_sort_order Liste
-#     available_axis_values = df_filtered[axis_column].unique()
-#     axis_values = [axis for axis in axis_sort_order if axis in available_axis_values]
-    
-#     df_GCode = filter_unique_gcodes(df)
-
-#     # Plotten und optionales Hinzufügen von Annotationen
-#     for axis_value in axis_values:
-#         _df = df_filtered.loc[df_filtered[axis_column] == axis_value].iloc[::downsample_rate]
-#         if _df.empty:
-#             continue  # Skip if there are no matching rows for this axis value
-        
-#         fig = px.line(_df, x=x_column, y=y_column, color=color_column, 
-#                       hover_data=hoverdict, title=f"{axis_column}: {axis_value}", markers=True)
-        
-#         if add_vrects:
-#             add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='HFBlockEvent_GCode', 
-#                              color1=vrect_color1, color2=vrect_color2)
-        
-#         if add_vlines:
-#             add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='HFBlockEvent_GCode')
-
-#         fig.update_traces(opacity=trace_opacity)
-#         fig.show()
 
 def create_plot_with_gcode_annotations(df, 
                                        filter_column='DataOrigin', 
@@ -653,8 +559,6 @@ def create_axiswise_plots(
 def create_axiswise_plots2(
     df,
     axis_column='Axis',
-    filter_column='DataOrigin',
-    filter_value='HF_Data',
     signal_column='Signal',
     group_column='Groupname',
     x_column='Duration_Seconds',
@@ -686,7 +590,17 @@ def create_axiswise_plots2(
     dict[str, plotly.graph_objects.Figure]
         Dictionary mit Achsennamen als Keys und Plotly-Figuren als Werten.
     """
-    df[axis_column] = df[axis_column].fillna("not axis specific")
+    # Assume the incoming DataFrame is already filtered by `DataOrigin` upstream.
+    # Work on a copy to avoid mutating the caller's DataFrame.
+    df_filtered = df.copy()
+    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
+
+    # Guard: required columns must exist in the provided (pre-filtered) DataFrame.
+    required_cols = [signal_column, x_column, y_column, axis_column]
+    missing = [c for c in required_cols if c not in df_filtered.columns]
+    if missing:
+        raise ValueError(f"create_axiswise_plots2: missing required columns in df (expected): {missing}")
+
     if hoverdict is None:
         hoverdict = {
             'Unit': True,
@@ -696,7 +610,6 @@ def create_axiswise_plots2(
             'HFProbeCounter': True
         }
 
-    df_filtered = df.loc[df[filter_column] == filter_value].copy()
     df_filtered[signal_column] = df_filtered[signal_column].astype(str)
 
     if color_palette is None:
@@ -713,7 +626,8 @@ def create_axiswise_plots2(
         df_filtered, y_column, groupby_col=signal_column, method=normalize_method
     )
 
-    df_gcode = filter_unique_gcodes(df, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
+    # Use the filtered DataFrame when extracting unique GCode events so annotations align with plotted data.
+    df_gcode = filter_unique_gcodes(df_filtered, signal_column=signal_column, gcode_column=gcode_column, sort_column=gcode_time_column)
     available_axes = df_filtered[axis_column].unique()
     axis_values = sorted(
         available_axes, key=lambda x: sort_order.index(x) if x in sort_order else len(sort_order)
@@ -726,9 +640,14 @@ def create_axiswise_plots2(
         if df_axis.empty:
             continue
 
-        df_axis = df_axis.groupby(signal_column, group_keys=False).apply(
-            lambda d: downsample_df(d, max_points=max_display_points)
-        )
+        # Faster deterministic downsampling: process groups and concat
+        groups = []
+        for _, grp in df_axis.groupby(signal_column, sort=False):
+            groups.append(downsample_df(grp, max_points=max_display_points))
+        if groups:
+            df_axis = pd.concat(groups)
+        else:
+            df_axis = df_axis.iloc[0:0]
 
         fig = px.line(
             df_axis,
@@ -773,6 +692,8 @@ def plot_digital_twin_heatmap_gradient(
     intensity_column='RMS_normalized_global',
     plate_width=245,
     plate_height=245,
+    include_qw_overlay=True,
+    debug_timing=True,
 ):
     """
     IWF-style Digital Twin Heatmap with:
@@ -788,8 +709,15 @@ def plot_digital_twin_heatmap_gradient(
     """
 
     import numpy as np
+    import time
     import plotly.graph_objects as go
     from viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
+
+    t_total = time.perf_counter()
+
+    def log(message):
+        if debug_timing:
+            print(f"[heatmap plot] {message}")
 
     # Empty fallbacks
     if df_heatmap.empty:
@@ -839,24 +767,54 @@ def plot_digital_twin_heatmap_gradient(
         rgb = (1 - v) * start_rgb + v * end_rgb
         return f"rgb({int(rgb[0])},{int(rgb[1])},{int(rgb[2])})"
 
-    # Slot positioning 
+    # Slot positioning: use DB-provided Nut_ID -> X_Position_Nut mapping.
     slots = sorted(df_heatmap[slot_column].unique())
     slot_radius = 2.5
 
-    if df_summary is not None and "X_Position_Nut" in df_summary.columns:
-        slot_positions = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
-        if "Werkzeugradius" in df_summary.columns:
-            slot_radius = df_summary["Werkzeugradius"].iloc[0]
-    # else:
-    #     slot_positions = {slot: 10 + slot * 15 for slot in slots}
+    log(f"start: {len(df_heatmap)} bins across {len(slots)} slots")
 
-    # Draw heatmap strips for each slot 
+    slot_positions = {}
+    if df_summary is not None and "X_Position_Nut" in df_summary.columns and "Nut_ID" in df_summary.columns:
+        try:
+            slot_positions = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+        except Exception:
+            slot_positions = {}
+
+        if "Werkzeugradius" in df_summary.columns and not df_summary["Werkzeugradius"].dropna().empty:
+            try:
+                slot_radius = float(df_summary["Werkzeugradius"].dropna().iloc[0])
+            except Exception:
+                pass
+
+    # Draw heatmap strips for each slot (staged: build shapes/traces/annotations lists first)
+    t_slots = time.perf_counter()
+    total_slot_shapes = 0
+    total_slot_traces = 0
+
+    staged_shapes = []
+    staged_traces = []
+    staged_annotations = []
+
     for slot_id in slots:
+        t_slot = time.perf_counter()
+
         slot_data = df_heatmap[df_heatmap[slot_column] == slot_id].copy()
         if slot_data.empty:
             continue
 
-        x_pos = slot_positions.get(slot_id, 10 + slot_id * 15)
+        # Expect `slot_id` to correspond to `Nut_ID` (integer-like). Use DB mapping.
+        try:
+            key = int(slot_id)
+        except Exception:
+            key = slot_id
+
+        x_pos = slot_positions.get(key)
+        if x_pos is None:
+            # fallback to simple spacing if DB position missing
+            try:
+                x_pos = 10 + float(slot_id) * 15
+            except Exception:
+                x_pos = 10
         x0, x1 = x_pos - slot_radius, x_pos + slot_radius
         slot_data = slot_data.sort_values(y_column)
 
@@ -872,26 +830,31 @@ def plot_digital_twin_heatmap_gradient(
             else slot_data[y_column].max()
         )
 
-        # Colored segments (above grid, under Qw line shapes)
+        # Colored segments (build shapes, add invisible scatter traces for hover)
+        added_shapes = 0
+        added_traces = 0
         for _, row in slot_data.iterrows():
             y0 = row.get("Y_min", 0)
             y1 = row.get("Y_max", row[y_column])
             color = get_color(row.get(intensity_column, 0))
 
-            fig.add_shape(
-                type="rect",
-                x0=x0,
-                x1=x1,
-                y0=y0,
-                y1=y1,
-                fillcolor=color,
-                line=dict(width=0),
-                opacity=1.0,
-                layer="above",
+            staged_shapes.append(
+                dict(
+                    type="rect",
+                    x0=x0,
+                    x1=x1,
+                    y0=y0,
+                    y1=y1,
+                    fillcolor=color,
+                    line=dict(width=0),
+                    opacity=1.0,
+                    layer="above",
+                )
             )
+            added_shapes += 1
 
             # invisible scatter for hover
-            fig.add_trace(
+            staged_traces.append(
                 go.Scatter(
                     x=[(x0 + x1) / 2],
                     y=[(y0 + y1) / 2],
@@ -907,27 +870,33 @@ def plot_digital_twin_heatmap_gradient(
                     showlegend=False,
                 )
             )
+            added_traces += 1
 
         # Slot outline (above)
-        fig.add_shape(
-            type="rect",
-            x0=x0,
-            x1=x1,
-            y0=0,
-            y1=y_max,
-            fillcolor="rgba(0,0,0,0)",
-            line=dict(color=border_color, width=2),
-            layer="above",
+        staged_shapes.append(
+            dict(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=0,
+                y1=y_max,
+                fillcolor="rgba(0,0,0,0)",
+                line=dict(color=border_color, width=2),
+                layer="above",
+            )
         )
+        added_shapes += 1
 
         # Slot label N#
-        fig.add_annotation(
-            x=x_pos,
-            y=-6,
-            text=f"N{int(slot_id)}",
-            showarrow=False,
-            font=dict(size=10, color=border_color),
-            yanchor="top",
+        staged_annotations.append(
+            dict(
+                x=x_pos,
+                y=-6,
+                text=f"N{int(slot_id)}",
+                showarrow=False,
+                font=dict(size=10, color=border_color),
+                yanchor="top",
+            )
         )
 
         # Spindle speed label (if available)
@@ -936,24 +905,56 @@ def plot_digital_twin_heatmap_gradient(
                 rpm = int(
                     df_summary[df_summary["Nut_ID"] == slot_id]["Drehzahl"].iloc[0]
                 )
-                fig.add_annotation(
-                    x=x_pos,
-                    y=1,
-                    text=f"{rpm} rpm",
-                    showarrow=False,
-                    font=dict(size=8, color=border_color),
-                    textangle=-90,
-                    yanchor="bottom",
+                staged_annotations.append(
+                    dict(
+                        x=x_pos,
+                        y=1,
+                        text=f"{rpm} rpm",
+                        showarrow=False,
+                        font=dict(size=8, color=border_color),
+                        textangle=-90,
+                        yanchor="bottom",
+                    )
                 )
             except Exception:
                 pass
+
+        total_slot_shapes += added_shapes
+        total_slot_traces += added_traces
+        log(
+            f"slot N{slot_id}: {len(slot_data)} bins, +{added_shapes} shapes, +{added_traces} traces, {time.perf_counter() - t_slot:.3f}s"
+        )
+
+    # Attach staged shapes/traces/annotations in bulk
+    existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+    existing_shapes.extend(staged_shapes)
+    fig.update_layout(shapes=existing_shapes)
+
+    if staged_traces:
+        fig.add_traces(staged_traces)
+
+    existing_annotations = list(fig.layout.annotations) if fig.layout.annotations else []
+    existing_annotations.extend(staged_annotations)
+    fig.update_layout(annotations=existing_annotations)
+
+    log(
+        f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
+        f"added {total_slot_shapes} shapes and {total_slot_traces} traces"
+    )
+
+    log(
+        f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
+        f"added {total_slot_shapes} shapes and {total_slot_traces} traces"
+    )
 
     # MRR Qw iso-lines (using experimental parameters) 
     qw_levels = []
     y_ticks_axis2 = []
     tick_labels_axis2 = []
 
-    if df_summary is not None and "Drehzahl" in df_summary.columns:
+    if include_qw_overlay and df_summary is not None and "Drehzahl" in df_summary.columns:
+        t_qw = time.perf_counter()
+        t_qw_start = t_qw
         a_e = 10.0      # mm
         f_rev = 0.18    # mm/rev
         k = a_e * f_rev  # 1.8
@@ -962,6 +963,7 @@ def plot_digital_twin_heatmap_gradient(
         ap_end = 10.56
 
         slot_rpm = {}
+        t_build_slot_rpm = time.perf_counter()
         for slot_id in slots:
             try:
                 rpm_val = float(
@@ -970,6 +972,8 @@ def plot_digital_twin_heatmap_gradient(
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
+        t_build_slot_rpm = time.perf_counter() - t_build_slot_rpm
+        log(f"Qw: built slot_rpm for {len(slot_rpm)} slots in {t_build_slot_rpm:.3f}s")
 
         if slot_rpm:
             max_rpm = max(slot_rpm.values())
@@ -999,50 +1003,100 @@ def plot_digital_twin_heatmap_gradient(
 
             qw_colors = sample_colorscale(IWF_GreyBlue_fade_scale, positions)
 
-            # For each Qw level, build points per slot and then draw as line shapes
+            # For each Qw level, compute targets vectorized and coalesce contiguous points
+            qw_shape_count = 0
+            qw_staged_shapes = []
+
+            # Build arrays for slots (stable ordering)
+            t_arrays_build = time.perf_counter()
+            slot_ids = np.array(slots)
+            x_array = np.empty(len(slot_ids), dtype=float)
+            rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
+            for i, sid in enumerate(slot_ids):
+                # rpm
+                try:
+                    rpm_array[i] = float(slot_rpm.get(sid, np.nan))
+                except Exception:
+                    rpm_array[i] = np.nan
+                # x positions (try int key then fallback)
+                try:
+                    key = int(sid)
+                except Exception:
+                    key = sid
+                try:
+                    x_array[i] = float(slot_positions.get(key, 10 + (float(sid) if isinstance(sid, (int, float)) or str(sid).replace('.','',1).isdigit() else 0) * 15))
+                except Exception:
+                    x_array[i] = float(slot_positions.get(key, 10))
+            t_arrays_build = time.perf_counter() - t_arrays_build
+            log(f"Qw: built arrays for {len(slot_ids)} slots in {t_arrays_build:.3f}s")
+
+            # Avoid divide-by-zero / nan propagation
+            valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
+
+            total_level_time = 0.0
+            total_path_time = 0.0
+            levels_processed = 0
+
             for qw_level, col in zip(qw_levels, qw_colors):
-                x_line = []
-                y_line = []
+                level_start = time.perf_counter()
+                # vectorized ap_target
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    ap_target = qw_level / (k * rpm_array)
 
-                for slot_id in slots:
-                    if slot_id not in slot_rpm:
-                        x_line.append(None)
-                        y_line.append(None)
-                        continue
+                mask = valid_rpm_mask & (ap_target >= ap_start) & (ap_target <= ap_end)
+                if not mask.any():
+                    total_level_time += time.perf_counter() - level_start
+                    continue
 
-                    rpm = slot_rpm[slot_id]
-                    ap_target = qw_level / (k * rpm)
+                y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
 
-                    if ap_start <= ap_target <= ap_end:
-                        y_target = plate_height * (ap_target - ap_start) / (
-                            ap_end - ap_start
+                # Find contiguous runs of True in mask and build SVG path per run
+                idx = np.where(mask)[0]
+                # identify breaks where consecutive indices are not sequential
+                breaks = np.where(np.diff(idx) != 1)[0]
+                starts = np.concatenate(([idx[0]], idx[breaks + 1]))
+                ends = np.concatenate((idx[breaks], [idx[-1]]))
+
+                path_build_start = time.perf_counter()
+                for s, e in zip(starts, ends):
+                    # build path string: Move to first point, then line to subsequent
+                    path_pts = [f"M {x_array[s]:.2f},{y_target[s]:.2f}"]
+                    if e > s:
+                        for j in range(s + 1, e + 1):
+                            path_pts.append(f"L {x_array[j]:.2f},{y_target[j]:.2f}")
+                    path_str = " ".join(path_pts)
+
+                    qw_staged_shapes.append(
+                        dict(
+                            type="path",
+                            path=path_str,
+                            line=dict(color=col, width=2, dash="dot"),
+                            layer="above",
                         )
-                        x_target = slot_positions.get(slot_id, 10 + slot_id * 15)
-                        x_line.append(x_target)
-                        y_line.append(y_target)
-                    else:
-                        x_line.append(None)
-                        y_line.append(None)
-
-                # Convert the line into shape segments so we can use layer="above"
-                for i in range(len(x_line) - 1):
-                    x0, x1 = x_line[i], x_line[i + 1]
-                    y0, y1 = y_line[i], y_line[i + 1]
-                    if (
-                        x0 is None or x1 is None or
-                        y0 is None or y1 is None
-                    ):
-                        continue
-
-                    fig.add_shape(
-                        type="line",
-                        x0=x0,
-                        y0=y0,
-                        x1=x1,
-                        y1=y1,
-                        line=dict(color=col, width=2, dash="dot"),
-                        layer="above",  # Qw iso-lines above everything
                     )
+                    qw_shape_count += 1
+                path_build_time = time.perf_counter() - path_build_start
+                total_path_time += path_build_time
+
+                level_time = time.perf_counter() - level_start
+                total_level_time += level_time
+                levels_processed += 1
+
+            # attach Qw shapes in bulk (extend existing layout shapes)
+            if qw_staged_shapes:
+                t_attach_start = time.perf_counter()
+                existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+                existing_shapes.extend(qw_staged_shapes)
+                fig.update_layout(shapes=existing_shapes)
+                t_attach = time.perf_counter() - t_attach_start
+            else:
+                t_attach = 0.0
+
+            log(
+                f"Qw iso-lines: {len(qw_levels)} levels, processed {levels_processed} levels, "
+                f"{qw_shape_count} shapes (paths), level_compute={total_level_time:.3f}s, "
+                f"path_build={total_path_time:.3f}s, attach={t_attach:.3f}s"
+            )
 
             # tick positions for right-hand MRR axis (use max rpm)
             for qw_level in qw_levels:
@@ -1051,6 +1105,8 @@ def plot_digital_twin_heatmap_gradient(
                     y_axis = plate_height * (ap_axis - ap_start) / (ap_end - ap_start)
                     y_ticks_axis2.append(y_axis)
                     tick_labels_axis2.append(f"{qw_level:,.0f}")
+
+            log(f"Qw iso-lines: {len(qw_levels)} levels, +{qw_shape_count} shapes, {time.perf_counter() - t_qw:.3f}s")
 
     # Dummy trace for yaxis2 (needed so y2 exists)
     if y_ticks_axis2:
@@ -1166,6 +1222,8 @@ def plot_digital_twin_heatmap_gradient(
 
     # lock aspect ratio of plate; zooming keeps geometry and both y-axes aligned
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
+
+    log(f"total plot_digital_twin_heatmap_gradient: {time.perf_counter() - t_total:.3f}s")
 
     return fig
     

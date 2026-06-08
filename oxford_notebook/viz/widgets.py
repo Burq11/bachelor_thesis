@@ -7,6 +7,18 @@ import pandas as pd
 import numpy as np
 import builtins
 
+
+_ACTIVE_HEATMAP_WIDGET = None
+
+
+def _close_widget(widget):
+    if widget is None:
+        return
+    try:
+        widget.close()
+    except Exception:
+        pass
+
 # Widget for selecting plate and slot in one step. Assigns DataFrame to selected_df in global scope.
 def show_plate_slot_selection_widget(default_plate=None, state=None):
     plates = provider.plates()
@@ -66,14 +78,21 @@ def show_plate_slot_selection_widget(default_plate=None, state=None):
     display(widgets.VBox([widgets.HBox([plate_dropdown, slot_dropdown, confirm_button]), output]))
     
 
-#########HEATMAP###############  IMPLEMENTATION BY OTHER STUDENT
+#########HEATMAP###############  IMPLEMENTATION BY OTHER STUDENTs
 def show_heatmap_widget(heatmap_state=None):
     """
     Interactive widget for digital twin heatmap visualization with spatial color gradients.
     Final version – colorbar shows true physical vibration amplitude (cutting region only),
     and normalized amplitude (0–1) for direct comparison to normalized plots.
     """
-    global platte
+    global platte, _ACTIVE_HEATMAP_WIDGET
+
+    clear_output(wait=True)
+
+    if _ACTIVE_HEATMAP_WIDGET is not None:
+        _close_widget(_ACTIVE_HEATMAP_WIDGET)
+        _ACTIVE_HEATMAP_WIDGET = None
+
     output_platte = widgets.Output()
     if heatmap_state is None:
         heatmap_state = {}
@@ -113,12 +132,29 @@ def show_heatmap_widget(heatmap_state=None):
         style={"description_width": "140px", "font_family": "Arial"}
     )
     slider_qw.disabled = True  # enable only after heatmap is generated
+    qw_status = widgets.HTML("")
+
+    progress_text = widgets.HTML("<b>Heatmap progress:</b> waiting to start")
+    progress_bar = widgets.IntProgress(
+        value=0,
+        min=0,
+        max=4,
+        description="Progress:",
+        bar_style="info",
+        layout=widgets.Layout(width="420px"),
+    )
+    progress_box = widgets.VBox([progress_text, progress_bar])
+
+    def set_progress(step, message):
+        progress_bar.value = step
+        progress_text.value = f"<b>Heatmap progress:</b> {message}"
     
-    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000):
+    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000, debug_timing=False):
         """
         Update ONLY Qw iso-lines (dotted line shapes) on an existing heatmap figure.
         No heatmap recomputation.
         """
+        import time
         import numpy as np
         from plotly.colors import sample_colorscale
     
@@ -143,13 +179,44 @@ def show_heatmap_widget(heatmap_state=None):
         ap_start = 2.0
         ap_end = 10.56
     
-        # Slot positions from summary if available
-        slot_positions = {}
-        if "Nut_ID" in df_summary.columns and "X_Position_Nut" in df_summary.columns:
-            slot_positions = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+        # Slot positions from summary if available.
+        # Safeguard: heatmap bins are keyed by Nut, while legacy overlays often key by Nut_ID.
+        slot_positions_by_nutid = {}
+        slot_positions_by_nut = {}
+
+        if "X_Position_Nut" in df_summary.columns:
+            if "Nut_ID" in df_summary.columns:
+                slot_positions_by_nutid = df_summary.set_index("Nut_ID")["X_Position_Nut"].to_dict()
+            if "Nut" in df_summary.columns:
+                slot_positions_by_nut = df_summary.set_index("Nut")["X_Position_Nut"].to_dict()
+
+        def _slot_pos(slot_id):
+            for key in (slot_id, float(slot_id) if slot_id is not None else slot_id):
+                if key in slot_positions_by_nutid:
+                    return slot_positions_by_nutid[key]
+                if key in slot_positions_by_nut:
+                    return slot_positions_by_nut[key]
+            try:
+                ikey = int(slot_id)
+            except Exception:
+                return None
+            for key in (ikey, float(ikey)):
+                if key in slot_positions_by_nutid:
+                    return slot_positions_by_nutid[key]
+                if key in slot_positions_by_nut:
+                    return slot_positions_by_nut[key]
+            return None
+
+        # Prefer Nut_ID ordering if present (preserves legacy visuals)
+        if "Nut_ID" in df_summary.columns:
+            slots = sorted(df_summary["Nut_ID"].dropna().unique())
+        elif "Nut" in df_summary.columns:
+            slots = sorted(df_summary["Nut"].dropna().unique())
+        else:
+            slots = []
     
-        slots = sorted(slot_positions.keys()) if slot_positions else sorted(df_summary["Nut_ID"].dropna().unique())
-    
+
+        t_build_rpm = time.perf_counter()
         slot_rpm = {}
         for slot_id in slots:
             try:
@@ -157,10 +224,13 @@ def show_heatmap_widget(heatmap_state=None):
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
-    
+        t_build_rpm = time.perf_counter() - t_build_rpm
+
         if not slot_rpm:
+            if debug_timing:
+                print(f"[redraw_qw] no slot rpm found (built in {t_build_rpm:.3f}s)")
             return fig
-    
+
         max_rpm = max(slot_rpm.values())
         qw_max = k * ap_end * max_rpm  # mm³/min
     
@@ -174,39 +244,70 @@ def show_heatmap_widget(heatmap_state=None):
         IWF_GreyBlue_fade_scale = [[0.0, "#dfe7ec"], [0.5, "#9fb6c4"], [1.0, "#3a515f"]]
         positions = [0.5] if len(qw_levels) <= 1 else [i / (len(qw_levels) - 1) for i in range(len(qw_levels))]
         qw_colors = sample_colorscale(IWF_GreyBlue_fade_scale, positions)
-    
-        # draw dotted line segments, layer="above"
+
+        # Build arrays once, then stage path shapes and attach them in one batch.
+        slot_ids = np.array(slots)
+        x_array = np.empty(len(slot_ids), dtype=float)
+        rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
+
+        t_build_arrays = time.perf_counter()
+        for i, slot_id in enumerate(slot_ids):
+            rpm_array[i] = float(slot_rpm.get(slot_id, np.nan)) if slot_id in slot_rpm else np.nan
+            x_target = _slot_pos(slot_id)
+            if x_target is None:
+                try:
+                    x_target = 10 + float(slot_id) * 15
+                except Exception:
+                    x_target = 10.0
+            x_array[i] = float(x_target)
+        t_build_arrays = time.perf_counter() - t_build_arrays
+
+        valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
+        qw_shapes = []
+        qw_shape_count = 0
+
+        t_build_lines = time.perf_counter()
         for qw_level, col in zip(qw_levels, qw_colors):
-            x_line = []
-            y_line = []
-    
-            for slot_id in slots:
-                rpm = slot_rpm.get(slot_id, None)
-                if rpm is None:
-                    x_line.append(None); y_line.append(None)
-                    continue
-    
-                ap_target = qw_level / (k * rpm)
-                if ap_start <= ap_target <= ap_end:
-                    y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
-                    x_target = slot_positions.get(slot_id, 10 + slot_id * 15)
-                    x_line.append(x_target); y_line.append(y_target)
-                else:
-                    x_line.append(None); y_line.append(None)
-    
-            for i in range(len(x_line) - 1):
-                x0, x1 = x_line[i], x_line[i + 1]
-                y0, y1 = y_line[i], y_line[i + 1]
-                if x0 is None or x1 is None or y0 is None or y1 is None:
-                    continue
-    
-                fig.add_shape(
-                    type="line",
-                    x0=x0, y0=y0,
-                    x1=x1, y1=y1,
-                    line=dict(color=col, width=2, dash="dot"),
-                    layer="above",
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ap_target = qw_level / (k * rpm_array)
+
+            mask = valid_rpm_mask & (ap_target >= ap_start) & (ap_target <= ap_end)
+            if not mask.any():
+                continue
+
+            y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
+            idx = np.where(mask)[0]
+            breaks = np.where(np.diff(idx) != 1)[0]
+            starts = np.concatenate(([idx[0]], idx[breaks + 1]))
+            ends = np.concatenate((idx[breaks], [idx[-1]]))
+
+            for start_idx, end_idx in zip(starts, ends):
+                path_parts = [f"M {x_array[start_idx]:.2f},{y_target[start_idx]:.2f}"]
+                for j in range(start_idx + 1, end_idx + 1):
+                    path_parts.append(f"L {x_array[j]:.2f},{y_target[j]:.2f}")
+                qw_shapes.append(
+                    dict(
+                        type="path",
+                        path=" ".join(path_parts),
+                        line=dict(color=col, width=2, dash="dot"),
+                        layer="above",
+                    )
                 )
+                qw_shape_count += 1
+        t_build_lines = time.perf_counter() - t_build_lines
+
+        t_attach = time.perf_counter()
+        if qw_shapes:
+            existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
+            existing_shapes.extend(qw_shapes)
+            fig.update_layout(shapes=existing_shapes)
+        t_attach = time.perf_counter() - t_attach
+
+        if debug_timing:
+            print(
+                f"[redraw_qw] rpm-build={t_build_rpm:.3f}s, arrays={t_build_arrays:.3f}s, "
+                f"paths={t_build_lines:.3f}s, attach={t_attach:.3f}s, shapes={qw_shape_count}"
+            )
     
         return fig
 
@@ -226,128 +327,75 @@ def show_heatmap_widget(heatmap_state=None):
     
     def update_heatmap(button=None):
         global platte
+        import time
         output_platte.clear_output()
+
+        t0 = time.perf_counter()
+
+        set_progress(0, "starting")
     
         platte = dropdown_platte.value
         bin_size_mm = slider_bin.value
     
         with output_platte:
+            display(progress_box)
+            set_progress(1, f"creating heatmap for Plate {platte} with bin size {bin_size_mm} mm")
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
-                from src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
+                from src.data_processing import (
+                    prepare_equal_bins_heatmap_sql,
+                    get_min_max_amplitudes_sql_from_db,
+                    summarize_chatter_cases_sql,
+                )
                 from viz.visualizer import plot_digital_twin_heatmap_gradient
 
-                # Use provider to get all slots for the selected plate
-                slots = provider.slots(platte)
-                if not slots:
-                    print(f"No slots found for Plate {platte}")
-                    return
-    
-                # Build heatmap data 
-                all_heatmap_data = []
-                y_ranges = []
-                for slot in slots:
-                    df = provider.df(platte, slot)
-                    if df is None or df.empty:
-                        continue
-                    df_heatmap = prepare_equal_bins_heatmap(df, bin_size_mm=bin_size_mm)
-                    if not df_heatmap.empty:
-                        all_heatmap_data.append(df_heatmap)
-                        y_ranges.append((df_heatmap["Y_min"].min(), df_heatmap["Y_max"].max()))
-    
-                if not all_heatmap_data:
+                # Get heatmap data from SQL
+                t_stage = time.perf_counter()
+                df_heatmap = prepare_equal_bins_heatmap_sql(
+                    platte,
+                    bin_size_mm=bin_size_mm,
+                    compute_normalized_global=True,
+                )
+                print(f"[heatmap] prepare_equal_bins_heatmap_sql: {time.perf_counter() - t_stage:.3f}s")
+                set_progress(2, "loaded heatmap data")
+
+                if df_heatmap.empty:
                     print(f"No valid heatmap data for Plate {platte}")
                     return
-    
-                df_heatmap = pd.concat(all_heatmap_data, ignore_index=True)
 
-                # Compute global normalization
-                vmin, vmax = df_heatmap["RMS_raw"].min(), df_heatmap["RMS_raw"].max()
-                if vmax > vmin:
-                    df_heatmap["RMS_normalized_global"] = (df_heatmap["RMS_raw"] - vmin) / (vmax - vmin)
-                else:
-                    df_heatmap["RMS_normalized_global"] = 0.0
+                # Global normalization (prefer SQL result; fallback to Python)
+                if "RMS_normalized_global" not in df_heatmap.columns:
+                    vmin, vmax = df_heatmap["RMS_raw"].min(), df_heatmap["RMS_raw"].max()
+                    if vmax > vmin:
+                        df_heatmap["RMS_normalized_global"] = (df_heatmap["RMS_raw"] - vmin) / (vmax - vmin)
+                    else:
+                        df_heatmap["RMS_normalized_global"] = 0.0
                 
-                # Compute true vibration amplitude for RMS_min and RMS_max bins (cutting region only)
-              
-                #   RMS = 0 → represent the *most stable* bin        (lowest RMS_raw)
-                #   RMS = 1 → represent the *worst chatter* bin      (highest RMS_raw)
-                
-                #   For each of these two bins, we want to extract the *actual*
-                #   oscilloscope peak vibration amplitude (from the raw X-signal)
-        
-                # Column identifying the slot in df_heatmap (Nut or Nut_ID depending on your files)
-                slot_col = "Nut" if "Nut" in df_heatmap.columns else "Nut_ID"
-        
-                # Locate the bins with globally smallest and largest RMS_raw 
-                idx_rms_min = df_heatmap["RMS_raw"].idxmin()  # → index of most stable bin
-                idx_rms_max = df_heatmap["RMS_raw"].idxmax()  # → index of chatter hotspot
-        
-                # Extract the full row for both bins
-                bin_min = df_heatmap.loc[idx_rms_min]  # row with smallest RMS_raw
-                bin_max = df_heatmap.loc[idx_rms_max]  # row with largest RMS_raw
-        
-                # Slot numbers for those bins
-                slot_min = int(bin_min[slot_col])
-                slot_max = int(bin_max[slot_col])
-        
-                # Y-limits of the most stable bin
-                y_min_min = float(bin_min["Y_min"])
-                y_max_min = float(bin_min["Y_max"])
-                y_min_max = float(bin_max["Y_min"])
-                y_max_max = float(bin_max["Y_max"])
-        
-                # Lists to collect X-axis oscillation values belonging to each bin
-                vals_min = []   # raw vibrations in RMS_min bin
-                vals_max = []   # raw vibrations in RMS_max bin
-        
-                # Loops over slots
-                for slot in slots:
-                    df = provider.df(platte, slot)
-                    if df is None or df.empty:
-                        continue
-        
-                    # Extract only oscilloscope X-channel data
-                    df_sig = df[
-                        (df["Axis"] == "X") &
-                        (df["DataOrigin"] == "Oscilloscope")
-                    ]
-        
-                    # OPTIONAL: remove extreme spikes if desired
-                    # df_sig = df_sig[df_sig["Value"].between(-1.0, 1.0)]
-        
-                    # If this file corresponds to the RMS_min bin slot:
-                    if slot == slot_min:
-                        # Select oscilloscope samples exactly within this bin's Y-range
-                        mask_min = (
-                            (df_sig["WCS_Y_mm"] >= y_min_min) &
-                            (df_sig["WCS_Y_mm"] <= y_max_min)
-                        )
-                        vals_min.extend(df_sig.loc[mask_min, "Value"].values)
-                    # If this slot corresponds to the RMS_max bin slot:
-                    if slot == slot_max:
-                        mask_max = (
-                            (df_sig["WCS_Y_mm"] >= y_min_max) &
-                            (df_sig["WCS_Y_mm"] <= y_max_max)
-                        )
-                        vals_max.extend(df_sig.loc[mask_max, "Value"].values)
-                if vals_min:
-                    amp_min = float(np.min(vals_min))   # often ~ small periodic vibration
-                else:
-                    amp_min = 0.0                       # fallback if no data found
-        
-                if vals_max:
-                    amp_max = float(np.max(vals_max))   # chatter spikes → large values
-                else:
-                    amp_max = 0.0                       # fallback
-        
-                # These amplitudes correspond directly to RMS=0 and RMS=1 regions
-                true_min = amp_min
-                true_max = amp_max
-                # Summary and plot
-                df_summary, _ = analyze_platte(platte, summarize_chatter_cases, lambda x: None)
-                fig = plot_digital_twin_heatmap_gradient(df_heatmap, df_summary=df_summary)
+                # Get min/max amplitudes from SQL (extrema bin selection in DuckDB)
+                t_stage = time.perf_counter()
+                true_min, true_max = get_min_max_amplitudes_sql_from_db(
+                    platte,
+                    bin_size_mm=bin_size_mm,
+                    target_signal="X",
+                    target_origin="Oscilloscope",
+                )
+                print(f"[heatmap] get_min_max_amplitudes_sql_from_db: {time.perf_counter() - t_stage:.3f}s")
+
+                # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
+                t_stage = time.perf_counter()
+                df_summary = summarize_chatter_cases_sql(platte)
+                print(f"[heatmap] summarize_chatter_cases_sql: {time.perf_counter() - t_stage:.3f}s")
+
+                t_stage = time.perf_counter()
+                fig = plot_digital_twin_heatmap_gradient(
+                    df_heatmap,
+                    df_summary=df_summary,
+                    include_qw_overlay=False,
+                    debug_timing=True,
+                )
+                print(f"[heatmap] plot_digital_twin_heatmap_gradient: {time.perf_counter() - t_stage:.3f}s")
+                set_progress(3, "building figure and overlays")
     
                 # Custom colorbar label 
                 colorbar_label = (
@@ -369,7 +417,9 @@ def show_heatmap_widget(heatmap_state=None):
                 slider_qw.disabled = False
                 
                 # Redraw overlay once immediately, so default Qw lines get replaced
-                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value)
+                t_stage = time.perf_counter()
+                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value, debug_timing=True)
+                print(f"[heatmap] redraw_qw_overlay: {time.perf_counter() - t_stage:.3f}s")
                 
                 # Save state (save the updated fig)
                 if heatmap_state is not None:
@@ -386,7 +436,9 @@ def show_heatmap_widget(heatmap_state=None):
                 slot_column = 'Nut' if 'Nut' in df_heatmap.columns else 'Nut_ID'
                 n_slots = df_heatmap[slot_column].nunique()
                 n_segments = len(df_heatmap)
+                set_progress(4, "done")
                 print(f"Heatmap created: {n_slots} slots, {n_segments} segments")
+                print(f"[heatmap] total update_heatmap: {time.perf_counter() - t0:.3f}s")
                 display(fig)
     
             except Exception as e:
@@ -399,9 +451,13 @@ def show_heatmap_widget(heatmap_state=None):
         fig = heatmap_state["fig"]
         df_summary = heatmap_state["df_summary"]
     
+        qw_status.value = f"<b>Qw step:</b> applying {change['new']:,} mm³/min ..."
+
         # Update overlay only
-        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"])
+        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"], debug_timing=True)
         heatmap_state["fig"] = fig
+
+        qw_status.value = f"<b>Qw step:</b> applied {change['new']:,} mm³/min"
     
         output_platte.clear_output()
         with output_platte:
@@ -415,11 +471,16 @@ def show_heatmap_widget(heatmap_state=None):
     update_button.on_click(update_heatmap)
     
     # Layout 
-    display(widgets.VBox([
+    root_widget = widgets.VBox([
         widgets.HBox([dropdown_platte, slider_bin, update_button]),
         slider_qw,
+        qw_status,
         output_platte
-    ]))
+    ])
+
+    heatmap_state["widget"] = root_widget
+    _ACTIVE_HEATMAP_WIDGET = root_widget
+    display(root_widget)
     
     with output_platte:
         print("Select plate and bin size above, then click 'Generate Heatmap'")
