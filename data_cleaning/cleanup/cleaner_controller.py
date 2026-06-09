@@ -1,9 +1,8 @@
+from pathlib import Path
 import cleaner
 import duckdb
 import os
-import concurrent.futures
-from concurrent.futures import ProcessPoolExecutor
-import multiprocessing
+import glob
 
 def get_recording_dirs(base_directory):
     return [os.path.join(base_directory, d) for d in os.listdir(base_directory) 
@@ -11,24 +10,63 @@ def get_recording_dirs(base_directory):
 
 def clean_one_recording(args):
     recording_dir, r_param = args
-    worker_name = multiprocessing.current_process().name
     
     output_path = cleaner.cleaner(recording_dir, r_parameter=r_param)
-    return output_path, worker_name, recording_dir
+    return output_path, recording_dir
 
 def build_database(base_directory):
     con = duckdb.connect('./duckdb.duckdb')
     try:
-        con.execute("DROP TABLE IF EXISTS cleaned_data")
-        
-        glob_pattern = f"{base_directory}/**/cleaned_data.parquet"
+        glob_pattern = Path(base_directory).joinpath("**", "cleaned_data.parquet").as_posix()        
+        files_to_process = glob.glob(glob_pattern, recursive=True)
+        if not files_to_process:
+            print("Keine Parquet-Dateien zum Laden in die Datenbank gefunden.")
+            return
+
+        con.execute(f"""
+            CREATE TABLE IF NOT EXISTS cleaned_data AS 
+            SELECT * FROM read_parquet('{glob_pattern}') LIMIT 0
+        """)
         
         con.execute(f"""
-            CREATE TABLE cleaned_data AS 
+            CREATE TEMP VIEW incoming_data AS 
             SELECT * FROM read_parquet('{glob_pattern}')
         """)
         
-        con.table("cleaned_data").limit(5).show()
+        overlap_count = con.execute("""
+            DELETE FROM cleaned_data 
+            WHERE EXISTS (
+                SELECT 1 
+                FROM incoming_data 
+                WHERE incoming_data.Nut = cleaned_data.Nut 
+                  AND incoming_data.Platte = cleaned_data.Platte
+            )
+        """).fetchone()[0]
+
+        if overlap_count > 0:
+            print(f"{overlap_count} existierende Einträge gefunden. Werden überschrieben...")
+        else:
+            print("🆕 Keine Überschneidungen gefunden. Füge komplett neue Daten hinzu...")
+        
+        con.execute("""
+            INSERT INTO cleaned_data 
+            SELECT * FROM incoming_data
+        """)
+        
+        con.execute("DROP VIEW incoming_data")
+        
+        print("Data loaded successfully. Deleting source files...")
+        
+        deleted_count = 0
+        for file_path in files_to_process:
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+            except OSError as e:
+                print(f"Fehler beim Löschen von {file_path}: {e}")
+                
+        print(f"Successfully deleted {deleted_count} parquet files.")
+
     except Exception as e:
         print(f"Fehler beim Erstellen der Datenbank: {e}")
     finally:
@@ -48,7 +86,7 @@ def clean_all_recordings(base_directory):
         try:
             result = clean_one_recording(task)
             
-            output_path, worker_name, rec_dir = result
+            output_path, rec_dir = result
             folder_name = os.path.basename(rec_dir)
             
             if output_path:
@@ -60,40 +98,3 @@ def clean_all_recordings(base_directory):
             folder_name = os.path.basename(task[0])
             print(f"Fehler bei {folder_name}: {e}")
     build_database(base_directory)
-
-
-import glob
-import os
-
-def cleanup_parquet_files(base_directory, dry_run=True):
-    """
-    Löscht NUR die erstellten 'cleaned_data.parquet' Dateien.
-    Mit dry_run=True wird nur angezeigt, was passieren würde.
-    """
-    if dry_run:
-        print("\nStarte Aufräumaktion DRY RUN...")
-    else:
-        print("\nStarte Aufräumaktion...")
-    
-    glob_pattern = os.path.join(base_directory, "**", "cleaned_data.parquet")
-    dateien = glob.glob(glob_pattern, recursive=True)
-    
-    geloescht = 0
-    for datei in dateien:
-        if os.path.basename(datei) != "cleaned_data.parquet":
-            print(f"Datei {datei} weicht vom Namen ab. Wird übersprungen!")
-            continue
-
-        if dry_run:
-            print(f"Würde löschen: {datei}")
-        else:
-            try:
-                os.remove(datei)
-                geloescht += 1
-            except OSError as e:
-                print(f"⚠️ Fehler beim Löschen von {datei}: {e}")
-            
-    if dry_run:
-        print(f"Es würden {len(dateien)} bereinigte Dateien gelöscht werden.")
-    else:
-        print(f"{geloescht} Parquet-Dateien erfolgreich gelöscht!")
