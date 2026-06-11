@@ -77,6 +77,27 @@ Outputs are automatically removed before commits via a git pre-commit hook (`nbs
 
 Paste a database file into the `data/` folder. Then, open the `notebook_demo.ipynb` to see how to load and explore the data using the provider and loader functions. The notebook includes examples of querying the database and visualizing data distributions .
 
+
+### Optional: Heatmap cache (faster interactive demos)
+
+If you expect to regenerate heatmaps repeatedly during a demo, you can materialize a small derived cache inside DuckDB to speed up interactive heatmap loads. The code provides `materialize_heatmap_cache(...)` in `src/data_processing.py`, and the widget prefers a `heatmap_bins_cache` table when present.
+
+Quick examples:
+
+```python
+from src.data_processing import materialize_heatmap_cache
+# materialize into the same DB (default)
+materialize_heatmap_cache(bin_size_mm=10, overwrite=True)
+
+# or materialize into a separate cache DB and attach the raw DB when initializing the provider:
+from src import provider
+provider.init(cache_db_path="/path/to/cache.duckdb")
+```
+
+Notes:
+- The system works without the cache — DuckDB runs aggregations on demand. The cache is optional and useful when you want faster repeated/interactive heatmap generation.
+- Keeping the helper allows safe benchmarking and on-demand materialization for demos.
+
 ---
 
 For questions or support, feel free to reach out.
