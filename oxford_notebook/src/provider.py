@@ -40,7 +40,6 @@ _atexit_registed : bool = False
 # init and helpers
 # ----------------------------
 
-# to make it super simple we auto detect the db path 
 def _auto_db_path(project_root: Path) -> Path:
     search_dirs = [
         project_root / "data",
@@ -69,7 +68,7 @@ def _safe_close_at_exit() -> None:
     except Exception:
         pass
 
-def init(db_path: Path | None = None, table_name: str ="my_table", project_root: Path | None = None, read_only: bool = True, cache_db_path: Path | None = None) -> None:
+def init(db_path: Path | None = None, table_name: str ="my_table", project_root: Path | None = None, read_only: bool = True) -> None:
     global loader_global, _atexit_registed
     
     if not _atexit_registed:
@@ -95,20 +94,7 @@ def init(db_path: Path | None = None, table_name: str ="my_table", project_root:
         table_name = tables[0][0]
         con.close()
 
-    # If a cache DB path is provided, connect the provider to the cache DB and
-    # ATTACH the raw DB as schema `raw`. Otherwise, connect directly to the
-    # provided DB path as before.
-    if cache_db_path is not None:
-        # connect to cache DB (this is the DB users will open in notebooks)
-        # Attach the raw DB inside the loader connection before schema load so
-        # the loader can reference raw.<table> transparently.
-        pre_attach_sql = f"ATTACH '{db_path}' AS raw"
-        loader_global = DuckDBLoader(
-            Path(cache_db_path), table_name=f"raw.{table_name}", read_only=read_only, pre_attach=pre_attach_sql
-        )
-        # loader_global.table_name is already set to 'raw.<table>' by constructor
-    else:
-        loader_global = DuckDBLoader(Path(db_path), table_name=table_name, read_only=read_only)
+    loader_global = DuckDBLoader(Path(db_path), table_name=table_name, read_only=read_only)
 
     # proof DB is loaded and ready (connection + table readable)
     loader_global.con.execute("SELECT 1").fetchone()
