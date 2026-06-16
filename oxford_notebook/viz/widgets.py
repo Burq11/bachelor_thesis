@@ -149,12 +149,11 @@ def show_heatmap_widget(heatmap_state=None):
         progress_bar.value = step
         progress_text.value = f"<b>Heatmap progress:</b> {message}"
     
-    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000, debug_timing=False):
+    def redraw_qw_overlay(fig, df_summary, plate_height=245, qw_step=50000):
         """
         Update ONLY Qw iso-lines (dotted line shapes) on an existing heatmap figure.
         No heatmap recomputation.
         """
-        import time
         import numpy as np
         from plotly.colors import sample_colorscale
     
@@ -216,7 +215,6 @@ def show_heatmap_widget(heatmap_state=None):
             slots = []
     
 
-        t_build_rpm = time.perf_counter()
         slot_rpm = {}
         for slot_id in slots:
             try:
@@ -224,11 +222,8 @@ def show_heatmap_widget(heatmap_state=None):
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
-        t_build_rpm = time.perf_counter() - t_build_rpm
 
         if not slot_rpm:
-            if debug_timing:
-                print(f"[redraw_qw] no slot rpm found (built in {t_build_rpm:.3f}s)")
             return fig
 
         max_rpm = max(slot_rpm.values())
@@ -250,7 +245,6 @@ def show_heatmap_widget(heatmap_state=None):
         x_array = np.empty(len(slot_ids), dtype=float)
         rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
 
-        t_build_arrays = time.perf_counter()
         for i, slot_id in enumerate(slot_ids):
             rpm_array[i] = float(slot_rpm.get(slot_id, np.nan)) if slot_id in slot_rpm else np.nan
             x_target = _slot_pos(slot_id)
@@ -260,13 +254,11 @@ def show_heatmap_widget(heatmap_state=None):
                 except Exception:
                     x_target = 10.0
             x_array[i] = float(x_target)
-        t_build_arrays = time.perf_counter() - t_build_arrays
 
         valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
         qw_shapes = []
         qw_shape_count = 0
 
-        t_build_lines = time.perf_counter()
         for qw_level, col in zip(qw_levels, qw_colors):
             with np.errstate(divide="ignore", invalid="ignore"):
                 ap_target = qw_level / (k * rpm_array)
@@ -294,20 +286,11 @@ def show_heatmap_widget(heatmap_state=None):
                     )
                 )
                 qw_shape_count += 1
-        t_build_lines = time.perf_counter() - t_build_lines
 
-        t_attach = time.perf_counter()
         if qw_shapes:
             existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
             existing_shapes.extend(qw_shapes)
             fig.update_layout(shapes=existing_shapes)
-        t_attach = time.perf_counter() - t_attach
-
-        if debug_timing:
-            print(
-                f"[redraw_qw] rpm-build={t_build_rpm:.3f}s, arrays={t_build_arrays:.3f}s, "
-                f"paths={t_build_lines:.3f}s, attach={t_attach:.3f}s, shapes={qw_shape_count}"
-            )
     
         return fig
 
@@ -351,13 +334,11 @@ def show_heatmap_widget(heatmap_state=None):
                 from viz.visualizer import plot_digital_twin_heatmap_gradient
 
                 # Get heatmap data from SQL
-                t_stage = time.perf_counter()
                 df_heatmap = prepare_equal_bins_heatmap_sql(
                     platte,
                     bin_size_mm=bin_size_mm,
                     compute_normalized_global=True,
                 )
-                print(f"[heatmap] prepare_equal_bins_heatmap_sql: {time.perf_counter() - t_stage:.3f}s")
                 set_progress(2, "loaded heatmap data")
 
                 if df_heatmap.empty:
@@ -373,28 +354,21 @@ def show_heatmap_widget(heatmap_state=None):
                         df_heatmap["RMS_normalized_global"] = 0.0
                 
                 # Get min/max amplitudes from SQL (extrema bin selection in DuckDB)
-                t_stage = time.perf_counter()
                 true_min, true_max = get_min_max_amplitudes_sql_from_db(
                     platte,
                     bin_size_mm=bin_size_mm,
                     target_signal="X",
                     target_origin="Oscilloscope",
                 )
-                print(f"[heatmap] get_min_max_amplitudes_sql_from_db: {time.perf_counter() - t_stage:.3f}s")
 
                 # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
-                t_stage = time.perf_counter()
                 df_summary = summarize_chatter_cases_sql(platte)
-                print(f"[heatmap] summarize_chatter_cases_sql: {time.perf_counter() - t_stage:.3f}s")
 
-                t_stage = time.perf_counter()
                 fig = plot_digital_twin_heatmap_gradient(
                     df_heatmap,
                     df_summary=df_summary,
                     include_qw_overlay=False,
-                    debug_timing=True,
                 )
-                print(f"[heatmap] plot_digital_twin_heatmap_gradient: {time.perf_counter() - t_stage:.3f}s")
                 set_progress(3, "building figure and overlays")
     
                 # Custom colorbar label 
@@ -417,9 +391,7 @@ def show_heatmap_widget(heatmap_state=None):
                 slider_qw.disabled = False
                 
                 # Redraw overlay once immediately, so default Qw lines get replaced
-                t_stage = time.perf_counter()
-                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value, debug_timing=True)
-                print(f"[heatmap] redraw_qw_overlay: {time.perf_counter() - t_stage:.3f}s")
+                fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=slider_qw.value)
                 
                 # Save state (save the updated fig)
                 if heatmap_state is not None:
@@ -438,7 +410,6 @@ def show_heatmap_widget(heatmap_state=None):
                 n_segments = len(df_heatmap)
                 set_progress(4, "done")
                 print(f"Heatmap created: {n_slots} slots, {n_segments} segments")
-                print(f"[heatmap] total update_heatmap: {time.perf_counter() - t0:.3f}s")
                 display(fig)
     
             except Exception as e:
@@ -454,7 +425,7 @@ def show_heatmap_widget(heatmap_state=None):
         qw_status.value = f"<b>Qw step:</b> applying {change['new']:,} mm³/min ..."
 
         # Update overlay only
-        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"], debug_timing=True)
+        fig = redraw_qw_overlay(fig, df_summary=df_summary, plate_height=245, qw_step=change["new"])
         heatmap_state["fig"] = fig
 
         qw_status.value = f"<b>Qw step:</b> applied {change['new']:,} mm³/min"

@@ -25,7 +25,6 @@ Thumbs.db
 
 # ---- Data / databases / outputs ----
 */data/*.duckdb
-*/data/
 */results/
 *.log
 !db_folder/.gitkeep

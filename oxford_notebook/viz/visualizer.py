@@ -693,7 +693,6 @@ def plot_digital_twin_heatmap_gradient(
     plate_width=245,
     plate_height=245,
     include_qw_overlay=True,
-    debug_timing=True,
 ):
     """
     IWF-style Digital Twin Heatmap with:
@@ -709,15 +708,8 @@ def plot_digital_twin_heatmap_gradient(
     """
 
     import numpy as np
-    import time
     import plotly.graph_objects as go
     from viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
-
-    t_total = time.perf_counter()
-
-    def log(message):
-        if debug_timing:
-            print(f"[heatmap plot] {message}")
 
     # Empty fallbacks
     if df_heatmap.empty:
@@ -771,8 +763,6 @@ def plot_digital_twin_heatmap_gradient(
     slots = sorted(df_heatmap[slot_column].unique())
     slot_radius = 2.5
 
-    log(f"start: {len(df_heatmap)} bins across {len(slots)} slots")
-
     slot_positions = {}
     if df_summary is not None and "X_Position_Nut" in df_summary.columns and "Nut_ID" in df_summary.columns:
         try:
@@ -787,7 +777,6 @@ def plot_digital_twin_heatmap_gradient(
                 pass
 
     # Draw heatmap strips for each slot (staged: build shapes/traces/annotations lists first)
-    t_slots = time.perf_counter()
     total_slot_shapes = 0
     total_slot_traces = 0
 
@@ -796,8 +785,6 @@ def plot_digital_twin_heatmap_gradient(
     staged_annotations = []
 
     for slot_id in slots:
-        t_slot = time.perf_counter()
-
         slot_data = df_heatmap[df_heatmap[slot_column] == slot_id].copy()
         if slot_data.empty:
             continue
@@ -921,10 +908,6 @@ def plot_digital_twin_heatmap_gradient(
 
         total_slot_shapes += added_shapes
         total_slot_traces += added_traces
-        log(
-            f"slot N{slot_id}: {len(slot_data)} bins, +{added_shapes} shapes, +{added_traces} traces, {time.perf_counter() - t_slot:.3f}s"
-        )
-
     # Attach staged shapes/traces/annotations in bulk
     existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
     existing_shapes.extend(staged_shapes)
@@ -937,24 +920,12 @@ def plot_digital_twin_heatmap_gradient(
     existing_annotations.extend(staged_annotations)
     fig.update_layout(annotations=existing_annotations)
 
-    log(
-        f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
-        f"added {total_slot_shapes} shapes and {total_slot_traces} traces"
-    )
-
-    log(
-        f"slot rendering total: {time.perf_counter() - t_slots:.3f}s, "
-        f"added {total_slot_shapes} shapes and {total_slot_traces} traces"
-    )
-
     # MRR Qw iso-lines (using experimental parameters) 
     qw_levels = []
     y_ticks_axis2 = []
     tick_labels_axis2 = []
 
     if include_qw_overlay and df_summary is not None and "Drehzahl" in df_summary.columns:
-        t_qw = time.perf_counter()
-        t_qw_start = t_qw
         a_e = 10.0      # mm
         f_rev = 0.18    # mm/rev
         k = a_e * f_rev  # 1.8
@@ -963,7 +934,6 @@ def plot_digital_twin_heatmap_gradient(
         ap_end = 10.56
 
         slot_rpm = {}
-        t_build_slot_rpm = time.perf_counter()
         for slot_id in slots:
             try:
                 rpm_val = float(
@@ -972,8 +942,6 @@ def plot_digital_twin_heatmap_gradient(
                 slot_rpm[slot_id] = rpm_val
             except Exception:
                 continue
-        t_build_slot_rpm = time.perf_counter() - t_build_slot_rpm
-        log(f"Qw: built slot_rpm for {len(slot_rpm)} slots in {t_build_slot_rpm:.3f}s")
 
         if slot_rpm:
             max_rpm = max(slot_rpm.values())
@@ -1008,7 +976,6 @@ def plot_digital_twin_heatmap_gradient(
             qw_staged_shapes = []
 
             # Build arrays for slots (stable ordering)
-            t_arrays_build = time.perf_counter()
             slot_ids = np.array(slots)
             x_array = np.empty(len(slot_ids), dtype=float)
             rpm_array = np.full(len(slot_ids), np.nan, dtype=float)
@@ -1027,25 +994,17 @@ def plot_digital_twin_heatmap_gradient(
                     x_array[i] = float(slot_positions.get(key, 10 + (float(sid) if isinstance(sid, (int, float)) or str(sid).replace('.','',1).isdigit() else 0) * 15))
                 except Exception:
                     x_array[i] = float(slot_positions.get(key, 10))
-            t_arrays_build = time.perf_counter() - t_arrays_build
-            log(f"Qw: built arrays for {len(slot_ids)} slots in {t_arrays_build:.3f}s")
 
             # Avoid divide-by-zero / nan propagation
             valid_rpm_mask = np.isfinite(rpm_array) & (rpm_array > 0)
 
-            total_level_time = 0.0
-            total_path_time = 0.0
-            levels_processed = 0
-
             for qw_level, col in zip(qw_levels, qw_colors):
-                level_start = time.perf_counter()
                 # vectorized ap_target
                 with np.errstate(divide='ignore', invalid='ignore'):
                     ap_target = qw_level / (k * rpm_array)
 
                 mask = valid_rpm_mask & (ap_target >= ap_start) & (ap_target <= ap_end)
                 if not mask.any():
-                    total_level_time += time.perf_counter() - level_start
                     continue
 
                 y_target = plate_height * (ap_target - ap_start) / (ap_end - ap_start)
@@ -1057,7 +1016,6 @@ def plot_digital_twin_heatmap_gradient(
                 starts = np.concatenate(([idx[0]], idx[breaks + 1]))
                 ends = np.concatenate((idx[breaks], [idx[-1]]))
 
-                path_build_start = time.perf_counter()
                 for s, e in zip(starts, ends):
                     # build path string: Move to first point, then line to subsequent
                     path_pts = [f"M {x_array[s]:.2f},{y_target[s]:.2f}"]
@@ -1075,28 +1033,12 @@ def plot_digital_twin_heatmap_gradient(
                         )
                     )
                     qw_shape_count += 1
-                path_build_time = time.perf_counter() - path_build_start
-                total_path_time += path_build_time
-
-                level_time = time.perf_counter() - level_start
-                total_level_time += level_time
-                levels_processed += 1
 
             # attach Qw shapes in bulk (extend existing layout shapes)
             if qw_staged_shapes:
-                t_attach_start = time.perf_counter()
                 existing_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
                 existing_shapes.extend(qw_staged_shapes)
                 fig.update_layout(shapes=existing_shapes)
-                t_attach = time.perf_counter() - t_attach_start
-            else:
-                t_attach = 0.0
-
-            log(
-                f"Qw iso-lines: {len(qw_levels)} levels, processed {levels_processed} levels, "
-                f"{qw_shape_count} shapes (paths), level_compute={total_level_time:.3f}s, "
-                f"path_build={total_path_time:.3f}s, attach={t_attach:.3f}s"
-            )
 
             # tick positions for right-hand MRR axis (use max rpm)
             for qw_level in qw_levels:
@@ -1105,8 +1047,6 @@ def plot_digital_twin_heatmap_gradient(
                     y_axis = plate_height * (ap_axis - ap_start) / (ap_end - ap_start)
                     y_ticks_axis2.append(y_axis)
                     tick_labels_axis2.append(f"{qw_level:,.0f}")
-
-            log(f"Qw iso-lines: {len(qw_levels)} levels, +{qw_shape_count} shapes, {time.perf_counter() - t_qw:.3f}s")
 
     # Dummy trace for yaxis2 (needed so y2 exists)
     if y_ticks_axis2:
@@ -1222,8 +1162,6 @@ def plot_digital_twin_heatmap_gradient(
 
     # lock aspect ratio of plate; zooming keeps geometry and both y-axes aligned
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
-
-    log(f"total plot_digital_twin_heatmap_gradient: {time.perf_counter() - t_total:.3f}s")
 
     return fig
     
