@@ -458,16 +458,105 @@ def show_heatmap_widget(heatmap_state=None):
         print(f"Current settings: Plate {dropdown_platte.value}, Bin size {slider_bin.value} mm")
 
 # Utility Voila: Button to trigger plot generation for the selected DataFrame.
-def show_generate_plots_button(get_df_func=None):
+def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
     """
     Displays a button that generates plots for the selected DataFrame.
     get_df_func: Optional function that returns the DataFrame to plot (default: uses global 'selected_df').
+    get_plot_dfs_func: Optional function that returns pre-split DataFrames for External/HF/LF plots.
     """
 
     output = widgets.Output()
+
+    def _display_plot_section(section_title, df, plot_kwargs):
+        if df is None or df.empty:
+            return []
+
+        section_widgets = [widgets.HTML(f"<b># {section_title}</b>")]
+        figs = create_axiswise_plots2(df, **plot_kwargs)
+        for key, fig in figs.items():
+            fig_out = widgets.Output()
+            with fig_out:
+                print(f"{section_title}: {key}")
+                display(fig)
+            section_widgets.append(fig_out)
+        return section_widgets
+
+    def _pick_frame(plot_sources, *keys):
+        for key in keys:
+            if key in plot_sources and plot_sources[key] is not None:
+                return plot_sources[key]
+        return None
+
     def on_generate_clicked(b):
         with output:
             clear_output()  # Only once, at the start
+            plot_sources = None
+            if get_plot_dfs_func is not None:
+                plot_sources = get_plot_dfs_func()
+
+            if isinstance(plot_sources, dict):
+                print("Generating plots from targeted query DataFrames...")
+                try:
+                    from src.data_processing import filter_constant_HF_signals
+
+                    external_df = _pick_frame(plot_sources, "Oscilloscope", "external")
+                    hf_df = _pick_frame(plot_sources, "HF_Data", "hf")
+                    lf_df = _pick_frame(plot_sources, "LF_Data", "lf")
+
+                    section_widgets = []
+                    section_widgets.extend(_display_plot_section(
+                        "External Sensor Values",
+                        external_df,
+                        dict(
+                            color_column='Signal',
+                            add_vlines=True,
+                            normalize_method='minmax',
+                            x_column='WCS_Y_mm',
+                            color_palette=None,
+                            max_display_points=20000,
+                        ),
+                    ))
+
+                    if hf_df is not None and not hf_df.empty:
+                        hf_df = filter_constant_HF_signals(hf_df)
+                        if 'Signal' in hf_df.columns:
+                            hf_df = hf_df[~hf_df['Signal'].isin(['ToolOrientation', 'WCSPosition'])]
+
+                    section_widgets.extend(_display_plot_section(
+                        "HF Data Figures",
+                        hf_df,
+                        dict(
+                            color_column='Signal',
+                            add_vlines=True,
+                            normalize_method='minmax',
+                            x_column='WCS_Y_mm',
+                            color_palette=None,
+                            max_display_points=20000,
+                        ),
+                    ))
+
+                    section_widgets.extend(_display_plot_section(
+                        "LF Data Figures",
+                        lf_df,
+                        dict(
+                            color_column='Signal',
+                            signal_color_mapping=False,
+                            marker=True,
+                            add_vlines=True,
+                            normalize_method=None,
+                            x_column='WCS_Y_mm',
+                            max_display_points=20000,
+                        ),
+                    ))
+
+                    if section_widgets:
+                        display(widgets.VBox(section_widgets))
+                    else:
+                        print("Please provide at least one non-empty plot DataFrame.")
+                except Exception as e:
+                    print(f"Error during plot generation: {e}")
+                return
+
             if get_df_func is not None:
                 df = get_df_func()
             else:
@@ -482,45 +571,54 @@ def show_generate_plots_button(get_df_func=None):
                     section_widgets = []
 
                     # External Sensor Values
-                    ext_header = widgets.HTML("<b># External Sensor Values</b>")
-                    ext_figs = create_axiswise_plots2(df, color_column='Signal', add_vlines=True, normalize_method='minmax', x_column='WCS_Y_mm', color_palette=None, max_display_points=20000, filter_value='Oscilloscope')
-                    ext_outputs = []
-                    for key, fig in ext_figs.items():
-                        fig_out = widgets.Output()
-                        with fig_out:
-                            print(f"External: {key}")
-                            display(fig)
-                        ext_outputs.append(fig_out)
-                    section_widgets.append(ext_header)
-                    section_widgets.extend(ext_outputs)
+                    section_widgets.extend(_display_plot_section(
+                        "External Sensor Values",
+                        df[df['DataOrigin'] == 'Oscilloscope'] if 'DataOrigin' in df.columns else df,
+                        dict(
+                            color_column='Signal',
+                            add_vlines=True,
+                            normalize_method='minmax',
+                            x_column='WCS_Y_mm',
+                            color_palette=None,
+                            max_display_points=20000,
+                        ),
+                    ))
 
                     # HF Data Figures
-                    hf_header = widgets.HTML("<b># HF Data Figures</b>")
-                    hf_figs = create_axiswise_plots2(df, color_column='Signal', add_vlines=True, normalize_method='minmax', x_column='WCS_Y_mm', color_palette=None, max_display_points=20000, filter_value='HF_Data')
-                    hf_outputs = []
-                    for key, fig in hf_figs.items():
-                        fig_out = widgets.Output()
-                        with fig_out:
-                            print(f"HF: {key}")
-                            display(fig)
-                        hf_outputs.append(fig_out)
-                    section_widgets.append(hf_header)
-                    section_widgets.extend(hf_outputs)
+                    hf_df = df[df['DataOrigin'] == 'HF_Data'] if 'DataOrigin' in df.columns else df
+                    section_widgets.extend(_display_plot_section(
+                        "HF Data Figures",
+                        hf_df,
+                        dict(
+                            color_column='Signal',
+                            add_vlines=True,
+                            normalize_method='minmax',
+                            x_column='WCS_Y_mm',
+                            color_palette=None,
+                            max_display_points=20000,
+                        ),
+                    ))
 
                     # LF Data Figures
-                    lf_header = widgets.HTML("<b># LF Data Figures</b>")
-                    lf_figs = create_axiswise_plots2(df, color_column='Signal', signal_color_mapping=False, marker=True, add_vlines=True, normalize_method=None, x_column='WCS_Y_mm', max_display_points=20000, filter_value='LF_Data')
-                    lf_outputs = []
-                    for key, fig in lf_figs.items():
-                        fig_out = widgets.Output()
-                        with fig_out:
-                            print(f"LF: {key}")
-                            display(fig)
-                        lf_outputs.append(fig_out)
-                    section_widgets.append(lf_header)
-                    section_widgets.extend(lf_outputs)
+                    lf_df = df[df['DataOrigin'] == 'LF_Data'] if 'DataOrigin' in df.columns else df
+                    section_widgets.extend(_display_plot_section(
+                        "LF Data Figures",
+                        lf_df,
+                        dict(
+                            color_column='Signal',
+                            signal_color_mapping=False,
+                            marker=True,
+                            add_vlines=True,
+                            normalize_method=None,
+                            x_column='WCS_Y_mm',
+                            max_display_points=20000,
+                        ),
+                    ))
 
-                    display(widgets.VBox(section_widgets))
+                    if section_widgets:
+                        display(widgets.VBox(section_widgets))
+                    else:
+                        print("Please provide at least one non-empty plot DataFrame.")
                 except Exception as e:
                     print(f"Error during plot generation: {e}")
             else:
