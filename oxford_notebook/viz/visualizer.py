@@ -692,7 +692,6 @@ def plot_digital_twin_heatmap_gradient(
     intensity_column='RMS_normalized_global',
     plate_width=245,
     plate_height=245,
-    include_qw_overlay=True,
 ):
     """
     IWF-style Digital Twin Heatmap with:
@@ -925,7 +924,7 @@ def plot_digital_twin_heatmap_gradient(
     y_ticks_axis2 = []
     tick_labels_axis2 = []
 
-    if include_qw_overlay and df_summary is not None and "Drehzahl" in df_summary.columns:
+    if df_summary is not None and "Drehzahl" in df_summary.columns:
         a_e = 10.0      # mm
         f_rev = 0.18    # mm/rev
         k = a_e * f_rev  # 1.8
