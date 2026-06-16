@@ -164,8 +164,8 @@ def show_heatmap_widget(heatmap_state=None):
         old_shapes = list(fig.layout.shapes) if fig.layout.shapes else []
         kept_shapes = []
         for s in old_shapes:
-            # Qw shapes are 'line' with dash='dot' in your heatmap generator
-            if getattr(s, "type", None) == "line" and getattr(getattr(s, "line", None), "dash", None) == "dot":
+            # Qw shapes are dotted overlay paths in the current heatmap generator.
+            if getattr(getattr(s, "line", None), "dash", None) == "dot" and getattr(s, "type", None) in {"line", "path"}:
                 continue
             kept_shapes.append(s)
         fig.layout.shapes = tuple(kept_shapes)
@@ -367,7 +367,6 @@ def show_heatmap_widget(heatmap_state=None):
                 fig = plot_digital_twin_heatmap_gradient(
                     df_heatmap,
                     df_summary=df_summary,
-                    include_qw_overlay=False,
                 )
                 set_progress(3, "building figure and overlays")
     
