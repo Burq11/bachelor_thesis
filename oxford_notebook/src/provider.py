@@ -40,7 +40,6 @@ _atexit_registed : bool = False
 # init and helpers
 # ----------------------------
 
-# to make it super simple we auto detect the db path 
 def _auto_db_path(project_root: Path) -> Path:
     search_dirs = [
         project_root / "data",
