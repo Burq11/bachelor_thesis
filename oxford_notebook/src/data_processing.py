@@ -10,6 +10,7 @@ from scipy.sparse.csgraph import connected_components
 
 ## data_processing refactored for Database access
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def extract_unique_signal_values(df, origin="LF_Data"):
     """
     Extrahiert eine eindeutige Übersicht über Signal, Label, Value und Value_String
@@ -82,6 +83,7 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
     ]]
 
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
     """
     SQL-first implementation: produce per-slot summaries for a plate using
@@ -155,6 +157,8 @@ def filter_unique_gcodes(df, signal_column='Signal', gcode_column='HFBlockEvent_
 
 
 
+# NOTE: currently unused — no callers found. (viz/visualizer.py defines its own local
+# downsample_dataframe, which is a different function.) Kept pending review.
 def downsample_dataframe(df: pd.DataFrame, max_points: int = 10_000) -> pd.DataFrame:
     """
     Reduziert die Anzahl der Zeilen eines DataFrames auf maximal `max_points` durch gleichmäßiges Sampling.
@@ -181,6 +185,8 @@ def downsample_dataframe(df: pd.DataFrame, max_points: int = 10_000) -> pd.DataF
         idx = np.linspace(0, len(df) - 1, max_points).astype(int)
         return df.iloc[idx].reset_index(drop=True)
 
+# NOTE: currently unused — only called by butter_lowpass_filter_series, which is itself
+# unused. Effectively dead unless that function is reintroduced. Kept pending review.
 def compute_sampling_rate(time: np.ndarray, method: str = "mean") -> int:
     """
     Berechnet die Samplingrate (Abtastfrequenz) eines Zeitarrays in Hz als ganze Zahl.
@@ -222,6 +228,7 @@ def compute_sampling_rate(time: np.ndarray, method: str = "mean") -> int:
 
 
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def butter_lowpass_filter_series(
     df: pd.DataFrame,
     signal_col: str,
@@ -324,6 +331,7 @@ def filter_constant_HF_signals(df, signal_col="Signal", value_col="Value", origi
     df_filtered = pd.concat([df_other, df_hf_filtered], ignore_index=True).sort_values(by="Duration_Seconds")
     return df_filtered.reset_index(drop=True).copy()
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def count_value_combinations(df, columns, sort_by_count=True, na_rep='NaN'):
     """
     Zählt die Häufigkeit von Kombinationen bestimmter Spaltenwerte in einem DataFrame.
@@ -373,6 +381,7 @@ def count_value_combinations(df, columns, sort_by_count=True, na_rep='NaN'):
 
 ########### PCA ###############
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def prepare_df_wide_for_pca(
     df: pd.DataFrame,
     index_col: str = "Duration_Seconds",
@@ -469,6 +478,7 @@ def prepare_df_wide_for_pca(
     return df_wide
 
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def reduce_redundant_signals(df, corr_threshold=0.9):
     """
     Removes redundant signals using absolute correlation + connected components.
@@ -745,6 +755,8 @@ def get_min_max_amplitudes_sql_from_db(
     true_max = result[1] if result[1] is not None else 0.0
     return true_min, true_max
 
+# NOTE: currently unused — no callers found. The DB variant get_min_max_amplitudes_sql_from_db
+# is the one actually used. Kept pending review.
 def get_min_max_amplitudes_sql(df_heatmap, platte):
     """
     Ermittelt die minimalen und maximalen Schwingungsamplituden für die Bins

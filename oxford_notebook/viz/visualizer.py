@@ -109,7 +109,9 @@ def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
         fig.add_vline(x=x_val, annotation_text=an_val, line_color=line_color)
 
 
-def create_plot_with_gcode_annotations(df, 
+# NOTE: currently unused — no callers found anywhere in the codebase (only its own docstring
+# examples reference it). Kept pending review.
+def create_plot_with_gcode_annotations(df,
                                        filter_column='DataOrigin', 
                                        filter_value='HF_Data', 
                                        axis_column='Axis', 
@@ -445,6 +447,8 @@ import numpy as np
 import plotly.express as px
 import plotly.io as pio
 
+# NOTE: currently unused — no callers found. The variant create_axiswise_plots2 is the one
+# actually used (widgets.py, notebooks). Kept pending review.
 def create_axiswise_plots(
     df,
     axis_column='Axis',
@@ -1171,6 +1175,7 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from viz.IWF_template import register_templates, IWF_Red_Fade
 
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def plot_correlation_blocks_IWF(df_wide):
     """
     Simple IWF-style correlation heatmap with signals grouped into blocks
@@ -1257,6 +1262,8 @@ from viz.IWF_template import (
     IWF_Black_fade
 )
 
+# NOTE: currently unused — only called by plot_pca_biplot, which is itself unused.
+# Effectively dead unless that function is reintroduced. Kept pending review.
 def build_iwf_color_palette(n_colors=50):
     """
     Creates an extended color palette based solely on IWF's defined fades and brand colors.
@@ -1281,6 +1288,7 @@ def build_iwf_color_palette(n_colors=50):
     # Return the first n_colors unique tones
     return combined[:n_colors]
     
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def plot_pca_biplot(X_pca, loadings, explained_var, arrow_scale=5, nut_state=None):
 
     """
@@ -1387,6 +1395,7 @@ def plot_pca_biplot(X_pca, loadings, explained_var, arrow_scale=5, nut_state=Non
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     return fig
 
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def plot_top5_per_pc(loadings):
     """
     Plot vertical bars of top 5 absolute loadings for PC1 and PC2.
