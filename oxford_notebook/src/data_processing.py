@@ -82,7 +82,7 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
     ]]
 
 
-def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwatgs: dict | None = None):
+def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
     """
     SQL-first implementation: produce per-slot summaries for a plate using
     `summarize_chatter_cases_sql` (no per-slot raw DataFrame loading).
@@ -97,7 +97,7 @@ def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwa
         `plot_fn` is provided, else `None`.
     """
     # Keep signature compatibility
-    df_kwatgs = df_kwatgs or {}
+    df_kwargs = df_kwargs or {}
 
     # Use the SQL-first summarizer
     df_summary = summarize_chatter_cases_sql(str(plate_number))
