@@ -1,11 +1,23 @@
-# viz/widgets_digital_twin.py
-from src import provider
+import builtins
+import time
+
+import numpy as np
+import pandas as pd
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-from viz.visualizer import create_axiswise_plots2
-import pandas as pd
-import numpy as np
-import builtins
+from plotly.colors import sample_colorscale
+
+from src import provider
+from src.data_processing import (
+    prepare_equal_bins_heatmap_sql,
+    get_min_max_amplitudes_sql_from_db,
+    summarize_chatter_cases_sql,
+    filter_constant_HF_signals,
+)
+from viz.visualizer import (
+    create_axiswise_plots2,
+    plot_digital_twin_heatmap_gradient,
+)
 
 
 _ACTIVE_HEATMAP_WIDGET = None
@@ -154,9 +166,6 @@ def show_heatmap_widget(heatmap_state=None):
         Update ONLY Qw iso-lines (dotted line shapes) on an existing heatmap figure.
         No heatmap recomputation.
         """
-        import numpy as np
-        from plotly.colors import sample_colorscale
-    
         if df_summary is None or "Drehzahl" not in df_summary.columns:
             return fig
     
@@ -310,7 +319,6 @@ def show_heatmap_widget(heatmap_state=None):
     
     def update_heatmap(button=None):
         global platte
-        import time
         output_platte.clear_output()
 
         t0 = time.perf_counter()
@@ -326,13 +334,6 @@ def show_heatmap_widget(heatmap_state=None):
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
-                from src.data_processing import (
-                    prepare_equal_bins_heatmap_sql,
-                    get_min_max_amplitudes_sql_from_db,
-                    summarize_chatter_cases_sql,
-                )
-                from viz.visualizer import plot_digital_twin_heatmap_gradient
-
                 # Get heatmap data from SQL
                 df_heatmap = prepare_equal_bins_heatmap_sql(
                     platte,
@@ -496,8 +497,6 @@ def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
             if isinstance(plot_sources, dict):
                 print("Generating plots from targeted query DataFrames...")
                 try:
-                    from src.data_processing import filter_constant_HF_signals
-
                     external_df = _pick_frame(plot_sources, "Oscilloscope", "external")
                     hf_df = _pick_frame(plot_sources, "HF_Data", "hf")
                     lf_df = _pick_frame(plot_sources, "LF_Data", "lf")
@@ -562,7 +561,6 @@ def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
                 df = globals().get('selected_df', None)
             if df is not None and not df.empty:
                 # Data processing if we use voila and want to keep the same plot generation code as in notebook_visualisation.ipynb
-                from src.data_processing import filter_constant_HF_signals
                 df = filter_constant_HF_signals(df)
                 df = df[~df['Signal'].isin(['ToolOrientation', 'WCSPosition'])]
                 print("Generating plots for selected DataFrame...")
