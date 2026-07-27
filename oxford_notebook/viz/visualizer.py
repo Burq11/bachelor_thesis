@@ -1,12 +1,24 @@
-#viz/visualizer.py
-
-### WHAT CAN I DELETE HERE?
+import itertools
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+from plotly.colors import sample_colorscale
+from scipy.cluster.hierarchy import linkage, leaves_list
+
 from src.data_processing import filter_unique_gcodes
+from viz import IWF_template
+from viz.IWF_template import (
+    register_templates,
+    PTZ_colors,
+    FraunhoferColors,
+    IWF_Red_Fade,
+    IWF_GreyBlue_fade,
+    IWF_Brown_fade,
+    IWF_Black_fade,
+)
 
 def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white", color2=None):
     """
@@ -257,10 +269,7 @@ def create_plot_with_gcode_annotations(df,
 #             display(fig)
 #         display(out)
 
-import plotly.graph_objects as go
-from viz import IWF_template
-
-## we are not using this anywhere 
+## we are not using this anywhere
 # def plot_digital_twin_segmented(df_summary, nut_width=5.0):
 #     """
 #     Visualisiert eine Fräsplatte basierend auf zusammengefassten Nutdaten
@@ -394,8 +403,6 @@ def get_signal_to_color_map(df, signal_column, group_column, color_palette):
     dict[str, str]
         Dictionary: Signalname → Farbwert.
     """
-    import itertools
-
     unique_groups = df[group_column].dropna().unique()
     group_to_color = {
         group: color for group, color in zip(sorted(unique_groups), itertools.cycle(color_palette))
@@ -441,11 +448,6 @@ def normalize_column(df, column, groupby_col, method='zscore'):
     else:
         raise ValueError(f"Unbekannte Normalisierungsmethode: {method}")
 
-        
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.io as pio
 
 # NOTE: currently unused — no callers found. The variant create_axiswise_plots2 is the one
 # actually used (widgets.py, notebooks). Kept pending review.
@@ -686,8 +688,6 @@ def create_axiswise_plots2(
     return figures
     
 #########HEATMAP###############
-from plotly.colors import sample_colorscale
-
 def plot_digital_twin_heatmap_gradient(
     df_heatmap,
     df_summary=None,
@@ -709,10 +709,6 @@ def plot_digital_twin_heatmap_gradient(
         a_p   = 2.0 ... 10.56 mm (tilted table)
         Qw    = a_e * f_rev * a_p * n = 1.8 * a_p * n
     """
-
-    import numpy as np
-    import plotly.graph_objects as go
-    from viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
 
     # Empty fallbacks
     if df_heatmap.empty:
@@ -1167,12 +1163,6 @@ def plot_digital_twin_heatmap_gradient(
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
 
     return fig
-    
-import numpy as np
-import plotly.graph_objects as go
-import plotly.io as pio
-from scipy.cluster.hierarchy import linkage, leaves_list
-from viz.IWF_template import register_templates, IWF_Red_Fade
 
 
 # NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
@@ -1247,20 +1237,7 @@ def plot_correlation_blocks_IWF(df_wide):
 
     return fig, corr_ord
 
-#########PCA###############  CAN I DELETE THIS? 
-import numpy as np
-import plotly.graph_objects as go
-import plotly.io as pio
-from plotly.colors import sample_colorscale
-from viz.IWF_template import (
-    register_templates,
-    PTZ_colors,
-    FraunhoferColors,
-    IWF_Red_Fade,
-    IWF_GreyBlue_fade,
-    IWF_Brown_fade,
-    IWF_Black_fade
-)
+#########PCA###############  CAN I DELETE THIS?
 
 # NOTE: currently unused — only called by plot_pca_biplot, which is itself unused.
 # Effectively dead unless that function is reintroduced. Kept pending review.
