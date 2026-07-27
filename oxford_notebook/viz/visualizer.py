@@ -258,92 +258,92 @@ def create_plot_with_gcode_annotations(df,
 import plotly.graph_objects as go
 from viz import IWF_template
 
+## we are not using this anywhere 
+# def plot_digital_twin_segmented(df_summary, nut_width=5.0):
+#     """
+#     Visualisiert eine Fräsplatte basierend auf zusammengefassten Nutdaten
+#     mit Chatter-Markierung (stabil/instabil) als digitale Zwilling-Grafik.
 
-def plot_digital_twin_segmented(df_summary, nut_width=5.0):
-    """
-    Visualisiert eine Fräsplatte basierend auf zusammengefassten Nutdaten
-    mit Chatter-Markierung (stabil/instabil) als digitale Zwilling-Grafik.
+#     Für jede Nut wird anhand des 'Chatter'-Labels und der Y_max-Werte ein
+#     rechteckiger Bereich gezeichnet:
+#     - Chatter = 0 → stabiler Bereich
+#     - Chatter = 1 → instabiler Bereich
+#     - beide → segmentiert in oberen/unteren Bereich
 
-    Für jede Nut wird anhand des 'Chatter'-Labels und der Y_max-Werte ein
-    rechteckiger Bereich gezeichnet:
-    - Chatter = 0 → stabiler Bereich
-    - Chatter = 1 → instabiler Bereich
-    - beide → segmentiert in oberen/unteren Bereich
+#     Parameter
+#     ----------
+#     df_summary : pd.DataFrame
+#         Aggregierter DataFrame mit Spalten:
+#         ['Chatter', 'Y_max', 'Drehzahl', 'Werkzeugradius', 'X_Position_Nut', 'Nut_ID', ...]
+#     nut_width : float, optional
+#         Breite der Nuten für die Darstellung (nicht verwendet, x-Position wird aus Radius berechnet)
 
-    Parameter
-    ----------
-    df_summary : pd.DataFrame
-        Aggregierter DataFrame mit Spalten:
-        ['Chatter', 'Y_max', 'Drehzahl', 'Werkzeugradius', 'X_Position_Nut', 'Nut_ID', ...]
-    nut_width : float, optional
-        Breite der Nuten für die Darstellung (nicht verwendet, x-Position wird aus Radius berechnet)
+#     Returns
+#     -------
+#     fig : go.Figure
+#         Interaktive Plotly-Grafik der Fräsplatte mit Chattersegmentierung.
+#     """
+#     fig = go.Figure()
 
-    Returns
-    -------
-    fig : go.Figure
-        Interaktive Plotly-Grafik der Fräsplatte mit Chattersegmentierung.
-    """
-    fig = go.Figure()
+#     # Grundplatte
+#     fig.add_shape(type="rect", x0=0, x1=245, y0=0, y1=245,
+#                   fillcolor=IWF_template.FraunhoferColors[4], line=dict(color="black"))
 
-    # Grundplatte
-    fig.add_shape(type="rect", x0=0, x1=245, y0=0, y1=245,
-                  fillcolor=IWF_template.FraunhoferColors[4], line=dict(color="black"))
+#     for nut_id in sorted(df_summary["Nut_ID"].unique()):
+#         gruppe = df_summary[df_summary["Nut_ID"] == nut_id].sort_values("Chatter")
+#         x_pos = gruppe["X_Position_Nut"].iloc[0]
+#         radius = gruppe["Werkzeugradius"].iloc[0]
+#         rpm = gruppe["Drehzahl"].iloc[0]
+#         x0 = x_pos - radius
+#         x1 = x_pos + radius
 
-    for nut_id in sorted(df_summary["Nut_ID"].unique()):
-        gruppe = df_summary[df_summary["Nut_ID"] == nut_id].sort_values("Chatter")
-        x_pos = gruppe["X_Position_Nut"].iloc[0]
-        radius = gruppe["Werkzeugradius"].iloc[0]
-        rpm = gruppe["Drehzahl"].iloc[0]
-        x0 = x_pos - radius
-        x1 = x_pos + radius
+#         if len(gruppe) == 2:
+#             y_split = gruppe["Y_max"].iloc[0]
+#             y_max = gruppe["Y_max"].iloc[1]
+#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_split,
+#                           fillcolor=IWF_template.FraunhoferColors[0], line=dict(color="black"), opacity=1)
+#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=y_split, y1=y_max,
+#                           fillcolor=IWF_template.iwfColors_without_white[3], line=dict(color="black"), opacity=1)
+#         else:
+#             y_max = gruppe["Y_max"].iloc[0]
+#             color = IWF_template.iwfColors_without_white[1] if gruppe["Chatter"].iloc[0] == 1 else IWF_template.FraunhoferColors[0]
+#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_max,
+#                           fillcolor=color, line=dict(color="black"), opacity=1)
 
-        if len(gruppe) == 2:
-            y_split = gruppe["Y_max"].iloc[0]
-            y_max = gruppe["Y_max"].iloc[1]
-            fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_split,
-                          fillcolor=IWF_template.FraunhoferColors[0], line=dict(color="black"), opacity=1)
-            fig.add_shape(type="rect", x0=x0, x1=x1, y0=y_split, y1=y_max,
-                          fillcolor=IWF_template.iwfColors_without_white[3], line=dict(color="black"), opacity=1)
-        else:
-            y_max = gruppe["Y_max"].iloc[0]
-            color = IWF_template.iwfColors_without_white[1] if gruppe["Chatter"].iloc[0] == 1 else IWF_template.FraunhoferColors[0]
-            fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_max,
-                          fillcolor=color, line=dict(color="black"), opacity=1)
+#         # Nutnummer (oben)
+#         fig.add_annotation(
+#             x=x_pos,
+#             y=0,
+#             text=f"N{int(nut_id)}",
+#             showarrow=False,
+#             font=dict(size=10, color='black'),
+#             textangle=0,
+#             yanchor='top'
+#         )
 
-        # Nutnummer (oben)
-        fig.add_annotation(
-            x=x_pos,
-            y=0,
-            text=f"N{int(nut_id)}",
-            showarrow=False,
-            font=dict(size=10, color='black'),
-            textangle=0,
-            yanchor='top'
-        )
+#         # Drehzahl (unten)
+#         fig.add_annotation(
+#             x=x_pos,
+#             y=1,
+#             text=f"{int(rpm)} rpm",
+#             showarrow=False,
+#             font=dict(size=10, color='black'),
+#             textangle=-90,
+#             yanchor='bottom'
+#         )
 
-        # Drehzahl (unten)
-        fig.add_annotation(
-            x=x_pos,
-            y=1,
-            text=f"{int(rpm)} rpm",
-            showarrow=False,
-            font=dict(size=10, color='black'),
-            textangle=-90,
-            yanchor='bottom'
-        )
-
-    fig.update_layout(
-        title="Digital Twin der Fräsplatte (Chatter-Visualisierung)",
-        xaxis_title="X [mm]",
-        yaxis_title="Y [mm]",
-        xaxis=dict(range=[0, 250]),
-        yaxis=dict(range=[-10, 270]),
-        width=600,
-        height=600,
-        plot_bgcolor="white"
-    )
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    return fig
+#     fig.update_layout(
+#         title="Digital Twin der Fräsplatte (Chatter-Visualisierung)",
+#         xaxis_title="X [mm]",
+#         yaxis_title="Y [mm]",
+#         xaxis=dict(range=[0, 250]),
+#         yaxis=dict(range=[-10, 270]),
+#         width=600,
+#         height=600,
+#         plot_bgcolor="white"
+#     )
+#     fig.update_yaxes(scaleanchor="x", scaleratio=1)
+#     return fig
 
 def downsample_df(df, max_points: int = 10000):
     """

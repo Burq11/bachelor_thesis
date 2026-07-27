@@ -551,11 +551,7 @@ def prepare_equal_bins_heatmap_sql(
     - Berechnung des RMS-Wertes pro Bin.
     - Gibt ein DataFrame mit den Ergebnissen zurück.
     """
-    if provider.loader_global is None:
-        raise RuntimeError("provider.init() must be called first")
-
-    con = provider.loader_global.con
-    table = provider.loader_global.table_name
+    table = provider.table()
 
     # Notes on schema:
     # - Single table with columns incl. Platte (VARCHAR) + Nut (DOUBLE)
@@ -634,7 +630,7 @@ def prepare_equal_bins_heatmap_sql(
         float(bin_size_mm),
         float(bin_size_mm),
     ]
-    return con.execute(query, params).fetchdf()
+    return provider.query_df(query, params)
 
 
 def get_min_max_amplitudes_sql_from_db(
@@ -655,11 +651,7 @@ def get_min_max_amplitudes_sql_from_db(
     - max: ORDER BY RMS_raw DESC, Nut ASC, Y_min ASC
     """
 
-    if provider.loader_global is None:
-        raise RuntimeError("provider.init() must be called first")
-
-    con = provider.loader_global.con
-    table = provider.loader_global.table_name
+    table = provider.table()
 
     query = f"""
     WITH SignalData AS (
@@ -745,7 +737,7 @@ def get_min_max_amplitudes_sql_from_db(
         str(target_origin),
     ]
 
-    result = con.execute(query, params).fetchone()
+    result = provider.query_row(query, params)
     if not result:
         return 0.0, 0.0
 
@@ -761,11 +753,7 @@ def get_min_max_amplitudes_sql(df_heatmap, platte):
     if df_heatmap.empty:
         return 0.0, 0.0
 
-    if provider.loader_global is None:
-        raise RuntimeError("provider.init() must be called first")
-
-    con = provider.loader_global.con
-    table = provider.loader_global.table_name
+    table = provider.table()
 
     # Finde die Bins mit min/max RMS
     idx_min_rms = df_heatmap['RMS_raw'].idxmin()
@@ -806,7 +794,7 @@ def get_min_max_amplitudes_sql(df_heatmap, platte):
         slot_min, y_min_min, y_max_min,
         slot_max, y_min_max, y_max_max,
     ]
-    result = con.execute(query, params).fetchone()
+    result = provider.query_row(query, params)
     
     true_min = result[0] if result[0] is not None else 0.0
     true_max = result[1] if result[1] is not None else 0.0

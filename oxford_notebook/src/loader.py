@@ -104,9 +104,21 @@ class DuckDBLoader:
         rows = self.con.execute(f"DESCRIBE {self.table_name}").fetchall()
         return {row[0] for row in rows} 
     
-    # Run a parameterized SQL query and return a pandas DataFrame 
-    def query_df(self, sql: str, params=()) -> pd.DataFrame:
-        return self.con.execute(sql, params).df()  
+    # ----------------------------
+    # Public query interface
+    # ----------------------------
+    # These methods are preapared for other modules
+    # (e.g. data_processing) to execute SQL. They keep the DuckDB
+    # connection encapsulated in the loader: callers author SQL,
+    # the loader executes it.
+
+    def query_df(self, sql: str, params: Iterable = ()) -> pd.DataFrame:
+        """Execute a parameterised query and return the result as a DataFrame."""
+        return self.con.execute(sql, list(params)).df()
+
+    def query_row(self, sql: str, params: Iterable = ()) -> tuple | None:
+        """Execute a parameterised query and return the first row, or None."""
+        return self.con.execute(sql, list(params)).fetchone()
      
     # Fetches data using get_data_df and applies groupby/aggregation.
     def get_grouped_data(self, group_by: list[str], agg: dict, *args, **kwargs) -> pd.DataFrame:

@@ -203,6 +203,31 @@ def schema() -> pd.DataFrame:
     )
 
 
+def table() -> str:
+    """Return the name of the table the provider is connected to."""
+    if loader_global is None:
+        raise RuntimeError("provider.init() must be called first")
+    return loader_global.table_name
+
+
+def query_df(sql: str, params=()) -> pd.DataFrame:
+    """Execute a parameterised query via the loader and return a DataFrame."""
+    return _client_call(
+        lambda: loader_global.query_df(sql, params),
+        empty_return=pd.DataFrame(),
+        hint="Check that provider.init() has run and that the SQL and params are valid.",
+    )
+
+
+def query_row(sql: str, params=()):
+    """Execute a parameterised query via the loader and return the first row."""
+    return _client_call(
+        lambda: loader_global.query_row(sql, params),
+        empty_return=None,
+        hint="Check that provider.init() has run and that the SQL and params are valid.",
+    )
+
+
 def slot_metadata_summary(plate: str, *, data_origin: str | None = None) -> pd.DataFrame:
     """One row per slot with overlay metadata needed by the heatmap plots."""
     plate = str(plate)
