@@ -3,6 +3,7 @@ from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError
 from IPython.display import display, Markdown
 import pandas as pd
 import atexit
+import warnings
 
 """
 Purpose
@@ -40,17 +41,34 @@ _atexit_registed : bool = False
 # init and helpers
 # ----------------------------
 
-def _auto_db_path(project_root: Path) -> Path:
-    search_dirs = [
+def _resolve_project_root(project_root: Path | None = None) -> Path:
+    if project_root is not None:
+        return Path(project_root).resolve()
+    here = Path.cwd().resolve()
+    return next((p for p in [here, *here.parents] if (p / "data").exists()), here)
+
+
+def _db_search_dirs(project_root: Path) -> list[Path]:
+    return [
         project_root / "data",
         project_root / "backend" / "data",
     ]
+
+
+def _find_db_candidates(project_root: Path) -> list[Path]:
+    """All discoverable .duckdb files, deduped and ordered newest-first."""
     candidates: list[Path] = []
-    for d in search_dirs:
+    for d in _db_search_dirs(project_root):
         if d.exists():
             candidates.extend(d.glob("*.duckdb"))
-    # dedupe + stable order
+    # dedupe + newest first
     candidates = sorted({p.resolve() for p in candidates})
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates
+
+
+def _auto_db_path(project_root: Path) -> Path:
+    candidates = _find_db_candidates(project_root)
 
     if not candidates:
         raise FileNotFoundError(
@@ -58,8 +76,17 @@ def _auto_db_path(project_root: Path) -> Path:
             "or /backend/data, or pass db_path explicitly to provider.init(db_path=...)."
         )
 
-    # pick newest if multiple
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    # pick newest if multiple, but warn so the choice is not silent
+    if len(candidates) > 1:
+        newest = candidates[0]
+        all_names = ", ".join(p.name for p in candidates)
+        warnings.warn(
+            f"Multiple DuckDB databases found ({all_names}). "
+            f"Auto-selecting the most recently modified one: {newest.name!r}. "
+            "To choose a specific database, pass db_path=... to provider.init() "
+            "(see provider.list_databases()).",
+            stacklevel=2,
+        )
     return candidates[0]
 
 def _safe_close_at_exit() -> None:
@@ -70,15 +97,14 @@ def _safe_close_at_exit() -> None:
 
 def init(db_path: Path | None = None, table_name: str ="my_table", project_root: Path | None = None, read_only: bool = True) -> None:
     global loader_global, _atexit_registed
-    
+
     if not _atexit_registed:
         atexit.register(_safe_close_at_exit)
         _atexit_registed = True
-        
-    if project_root is None:
-        here = Path.cwd().resolve()
-        project_root = next((p for p in [here, *here.parents] if (p / "data").exists()), here)
-    
+
+    project_root = _resolve_project_root(project_root)
+
+    # explicit db_path wins; otherwise auto-detect in the search path
     if db_path is None:
         db_path = _auto_db_path(project_root)
         
@@ -114,6 +140,16 @@ def where() -> dict:
         "table_name": loader_global.table_name,
         "read_only": getattr(loader_global, "read_only", None),
     }
+
+
+def list_databases(project_root: Path | None = None) -> list[str]:
+    """
+    List the DuckDB databases discoverable in the search path (data/ and backend/data/)
+    as absolute paths, ordered newest-first. Feed a returned path straight to
+    provider.init(db_path=...) to select one. Works before init() is called.
+    """
+    root = _resolve_project_root(project_root)
+    return [str(p) for p in _find_db_candidates(root)]
 
 def _show_user_error(message: str, hint: str | None = None) -> None:
     text = f"###\n**{message}**"
