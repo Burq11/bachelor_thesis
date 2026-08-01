@@ -216,7 +216,7 @@ def df(plate: int, slot: int | None = None, **kwargs) -> pd.DataFrame:
     return _client_call(
         lambda: loader_global.get_data_df(plate, slot, **kwargs),
         empty_return=pd.DataFrame(),
-        hint="Try provider.plate_slots() to see valid plates and their slots. Use provider.schema() to see valid columns.",
+        hint="Try provider.plate_slots() to see valid plates and their slots",
     )
     
 def group_data(group_by: list[str], agg: dict, *args, **kwargs) -> pd.DataFrame:

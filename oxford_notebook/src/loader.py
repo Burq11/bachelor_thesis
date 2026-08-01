@@ -82,17 +82,6 @@ class DuckDBLoader:
         q = f"SELECT 1 FROM {self.table_name} WHERE {where_sql} LIMIT 1"
         return self.con.execute(q,params).fetchone() is not None
 
-    def _filter_matches(self, plate: int, slot: Optional[int], clause: str, extra_params: list) -> bool:
-        """True if this single filter alone returns any row for the plate/slot."""
-        where = "Platte = ?"
-        params: list = [plate]
-        if slot is not None:
-            where += " AND Nut = ?"
-            params.append(slot)
-        where += " AND " + clause
-        params += extra_params
-        return self._exists(where, params)
-    
     def _ensure_plate_exists(self, plate: int) -> None:
         if not self._exists("Platte = ? AND Platte IS NOT NULL", [plate]):
             raise DataNotFoundError(f"Unknown plate={plate!r}.")
@@ -104,38 +93,44 @@ class DuckDBLoader:
                 raise DataNotFoundError(
                     f"No data for (plate={plate!r}, slot={slot}).")
                 
-    def _validate_query(self, df: pd.DataFrame, plate: int, slot: Optional[int] = None, *,
-        data_origin: Optional[str] = None, signals: Optional[Iterable[str]] = None) -> None:
-        if not df.empty:
-            return
+    def _validate_inputs(self, plate: int, slot: Optional[int] = None, *,
+        fields: Optional[Iterable[str]] = None, data_origin: Optional[str] = None,
+        signals: Optional[Iterable[str]] = None) -> Optional[list[str]]:
+        issues: list[tuple[str, list[str]]] = []
         slot_arg = f", {slot}" if slot is not None else ""
-        details, hints = [], []
-        if data_origin and not self._filter_matches(plate, slot, "DataOrigin = ?", [data_origin]):
-            details.append(f"data_origin={data_origin!r}")
-            hints.append(f"see provider.data_origin({plate}{slot_arg})")
+
+        validated_fields: Optional[list[str]] = None
+        if fields:
+            fields = list(fields)
+            unknown = [c for c in fields if c not in self._valid_cols]
+            if unknown:
+                issues.append((f"Unknown column(s): {unknown}",
+                               ["Use provider.schema() to see valid columns"]))
+            else:
+                validated_fields = fields
+                
+        data_origin_valid = True
+        if data_origin:
+            valid_origins = self.list_data_origins(plate, slot)
+            if data_origin not in valid_origins:
+                data_origin_valid = False
+                issues.append((f"No rows matched data_origin={data_origin!r}",
+                               [f"see provider.data_origin({plate}{slot_arg})"]))
+
         if signals:
             signals = list(signals)
-            placeholders = ", ".join(["?"] * len(signals))
-            if not self._filter_matches(plate, slot, f"Signal IN ({placeholders})", signals):
-                details.append(f"signals={signals!r}")
-                hints.append(f"see provider.signals({plate}{slot_arg})")
-        if details:
-            raise QueryValidationError([("No rows matched your filters: " + ", ".join(details), hints)])
+            origin_for_signals = data_origin if data_origin_valid else None
+            valid_signals = set(self.list_signals(plate, slot, data_origin=origin_for_signals))
+            missing = [s for s in signals if s not in valid_signals]
+            if missing:
+                issues.append((f"No rows matched signals={missing!r}",
+                               [f"see provider.signals({plate}{slot_arg})"]))
 
-    def _validate_fields(self, fields: Optional[Iterable[str]]) -> Optional[list[str]]:
-        """
-        Returns:
-          - None => use "*"
-          - list[str] => validated field list
-        """
-        if not fields:
-            return None
-        fields = list(fields)
-        unknown = [c for c in fields if c not in self._valid_cols]
-        if unknown:
-            raise InvalidColumnError(f"Unknown column(s): {unknown}. Use provider.schema() to see valid columns")
-        return fields
-    
+        if issues:
+            raise QueryValidationError(issues)
+
+        return validated_fields
+
     
     # ----------------------------
     # Utilities
@@ -273,19 +268,21 @@ class DuckDBLoader:
         wcs_max: Optional[float] = None, order_by_time: bool = True, limit: Optional[int] = None) -> pd.DataFrame:
         
         self._ensure_plate_exists(plate)
+        if slot is not None:
+            self._ensure_plate_slot_exists(plate, slot)
 
-        validated_fields = self._validate_fields(fields)
+        validated_fields = self._validate_inputs(
+            plate, slot, fields=fields, data_origin=data_origin, signals=signals)
         select_clause = "*" if validated_fields is None else ", ".join(validated_fields)
-        
+
         query = f"""
-            SELECT {select_clause} 
+            SELECT {select_clause}
             FROM {self.table_name}
             WHERE Platte = ?
         """
         params: list = [plate]
 
         if slot is not None:
-            self._ensure_plate_slot_exists(plate, slot)
             query += " AND Nut = ?"
             params.append(slot)
         
@@ -317,7 +314,6 @@ class DuckDBLoader:
         
         #transform the response into Data Frame
         df = self.query_df(query, params)
-        self._validate_query(df, plate, slot, data_origin=data_origin, signals=signals)
 
         if "Time" in df.columns:
             df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
@@ -447,6 +443,9 @@ class DuckDBLoader:
         Returns only columns needed by create_axiswise_plots2 + optional hover fields.
         """
         self._ensure_plate_exists(plate)
+        if slot is not None:
+            self._ensure_plate_slot_exists(plate, slot)
+        self._validate_inputs(plate, slot, data_origin=data_origin, signals=signals)
 
         required_cols = [
             "Platte",
@@ -479,7 +478,6 @@ class DuckDBLoader:
         params: list = [plate]
 
         if slot is not None:
-            self._ensure_plate_slot_exists(plate, slot)
             query += " AND Nut = ?"
             params.append(slot)
 
@@ -512,7 +510,6 @@ class DuckDBLoader:
             params.append(limit)
 
         df = self.query_df(query, params)
-        self._validate_query(df, plate, slot, data_origin=data_origin, signals=signals)
 
         if "Time" in df.columns:
             df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
