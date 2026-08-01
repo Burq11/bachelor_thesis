@@ -146,7 +146,7 @@ def list_databases(project_root: Path | None = None) -> list[str]:
     """
     List the DuckDB databases discoverable in the search path (data/ and backend/data/)
     as absolute paths, ordered newest-first. Feed a returned path straight to
-    provider.init(db_path=...) to select one. Works before init() is called.
+    provider.init(db_path=...) to select one.
     """
     root = _resolve_project_root(project_root)
     return [str(p) for p in _find_db_candidates(root)]
@@ -179,15 +179,15 @@ def plates():
         hint="Check provider.init() and provider.where() to see if the Database is connected",
     )
 
-def slots(plate: str) -> list[float]:
-    plate = str(plate)
+def slots(plate: int) -> list[int]:
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.list_slots_for_plate(plate),
         empty_return=[],
         hint="Try provider.plates() to see valid plates.",
     )
     
-def plate_slots() -> list[tuple[str, float]]:
+def plate_slots() -> list[tuple[int, int]]:
     """
     Returns all distinct (plate, slot) pairs in the DB.
     """
@@ -197,24 +197,24 @@ def plate_slots() -> list[tuple[str, float]]:
         hint="Check provider.init() and provider.where() to see if the Database is connected.",
     )
     
-def signals(plate: str, slot: float | None = None, data_origin: str | None = None) -> pd.DataFrame:
-    plate = str(plate)
+def signals(plate: int, slot: int | None = None, data_origin: str | None = None) -> list[str]:
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.list_signals(plate, slot, data_origin=data_origin),
         empty_return=[],
         hint="Try provider.slots(<plate>) or provider.plate_slots() to see valid plates and slots.",
     )
 
-def data_origin(plate: str, slot: float | None = None) -> list[str]:
-    plate = str(plate)
+def data_origin(plate: int, slot: int | None = None) -> list[str]:
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.list_data_origins(plate, slot),
         empty_return=[],
         hint="Try provider.plate_slots() to list all slots and plates.",
     )
 
-def df(plate: str, slot: float | None = None, **kwargs) -> pd.DataFrame:
-    plate = str(plate) 
+def df(plate: int, slot: int | None = None, **kwargs) -> pd.DataFrame:
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.get_data_df(plate, slot, **kwargs),
         empty_return=pd.DataFrame(),
@@ -264,9 +264,9 @@ def query_row(sql: str, params=()):
     )
 
 
-def slot_metadata_summary(plate: str, *, data_origin: str | None = None) -> pd.DataFrame:
+def slot_metadata_summary(plate: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """One row per slot with overlay metadata needed by the heatmap plots."""
-    plate = str(plate)
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.slot_metadata_summary(plate, data_origin=data_origin),
         empty_return=pd.DataFrame(),
@@ -274,9 +274,9 @@ def slot_metadata_summary(plate: str, *, data_origin: str | None = None) -> pd.D
     )
 
 
-def slot_chatter_cases_summary(plate: str, *, data_origin: str | None = None) -> pd.DataFrame:
+def slot_chatter_cases_summary(plate: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """Long-form chatter boundary summary per slot (no raw per-slot loads)."""
-    plate = str(plate)
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.slot_chatter_cases_summary(plate, data_origin=data_origin),
         empty_return=pd.DataFrame(),
@@ -303,8 +303,8 @@ def close() -> None:
 # ----------------------------
 
 def axiswise_plot_df(
-    plate: str,
-    slot: float | None = None,
+    plate: int,
+    slot: int | None = None,
     *,
     data_origin: str | None = None,
     signals: list[str] | None = None,
@@ -313,7 +313,7 @@ def axiswise_plot_df(
     order_by: str = "Time",
     limit: int | None = None,
 ) -> pd.DataFrame:
-    plate = str(plate)
+    plate = int(plate)
     return _client_call(
         lambda: loader_global.get_axiswise_plot_df(
             plate,

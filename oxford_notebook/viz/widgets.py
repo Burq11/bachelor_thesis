@@ -343,7 +343,7 @@ def show_heatmap_widget(heatmap_state=None):
                 set_progress(2, "loaded heatmap data")
 
                 if df_heatmap.empty:
-                    print(f"No valid heatmap data for Plate {platte}")
+                    print(f"Data Frame empty - No valid heatmap data for Plate {platte}")
                     return
 
                 # Global normalization (prefer SQL result; fallback to Python)

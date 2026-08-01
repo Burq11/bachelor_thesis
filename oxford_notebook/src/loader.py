@@ -67,11 +67,11 @@ class DuckDBLoader:
         q = f"SELECT 1 FROM {self.table_name} WHERE {where_sql} LIMIT 1"
         return self.con.execute(q,params).fetchone() is not None
     
-    def _ensure_plate_exists(self, plate: str) -> None:
+    def _ensure_plate_exists(self, plate: int) -> None:
         if not self._exists("Platte = ? AND Platte IS NOT NULL", [plate]):
             raise DataNotFoundError(f"Unknown plate={plate!r}.")
         
-    def _ensure_plate_slot_exists(self, plate: str, slot: float) -> None:
+    def _ensure_plate_slot_exists(self, plate: int, slot: int) -> None:
             if not self._exists("Platte = ? AND Nut = ?", [plate, slot]):
                 if not self._exists("Platte = ?", [plate]):
                     raise DataNotFoundError(f"Unknown plate={plate!r}.")
@@ -128,7 +128,7 @@ class DuckDBLoader:
     # ----------------------------
     # Basic SQL queries
     # ----------------------------
-    def list_plates(self) -> list[str]:
+    def list_plates(self) -> list[int]:
         query = f"""
             SELECT DISTINCT Platte
             FROM {self.table_name}
@@ -139,7 +139,7 @@ class DuckDBLoader:
         return [row[0] for row in result_rows]
     
     
-    def list_slots(self) -> list[float]:
+    def list_slots(self) -> list[int]:
         query = f"""
             SELECT DISTINCT Nut
             FROM {self.table_name}
@@ -151,7 +151,7 @@ class DuckDBLoader:
     
     
     ## maybe we dont need this, it just shows all the slots of plates
-    def list_plate_slots_flat(self) -> list[tuple[str, float]]:
+    def list_plate_slots_flat(self) -> list[tuple[int, int]]:
         query = f"""
             SELECT DISTINCT Platte, Nut
             FROM {self.table_name}
@@ -163,7 +163,7 @@ class DuckDBLoader:
         return [(row[0], row[1]) for row in result_rows]
     
     
-    def list_slots_for_plate(self, plate: str) -> list[float]:
+    def list_slots_for_plate(self, plate: int) -> list[int]:
         self._ensure_plate_exists(plate)
         query = f"""
             SELECT DISTINCT Nut
@@ -176,8 +176,7 @@ class DuckDBLoader:
         return [row[0] for row in result_rows]
     
     
-    def list_signals(self, plate: str, slot: Optional[float] = None, data_origin: Optional[str] = None) -> pd.DataFrame: ### here we can make the signals a list and not a dataframe
-        # If a slot is provided, ensure that the specific (plate, slot) exists.
+    def list_signals(self, plate: int, slot: Optional[int] = None, data_origin: Optional[str] = None) -> list[str]: 
         # If no slot is provided, return signals for the whole plate.
         self._ensure_plate_exists(plate)
         query = f"""
@@ -200,9 +199,9 @@ class DuckDBLoader:
         query += " ORDER BY Signal"
         df = self.query_df(query, params)
 
-        return df
-    
-    def list_data_origins(self, plate: str, slot: Optional[float] = None) -> list[str]:
+        return df["Signal"].tolist()
+
+    def list_data_origins(self, plate: int, slot: Optional[int] = None) -> list[str]:
         # If slot provided, return data origins for that (plate, slot),
         # otherwise return all data origins for the plate.
         self._ensure_plate_exists(plate)
@@ -224,7 +223,7 @@ class DuckDBLoader:
         return [row[0] for row in rows]
             
     
-    def get_data_df(self, plate: str, slot: Optional[float] = None, *,
+    def get_data_df(self, plate: int, slot: Optional[int] = None, *,
         fields: Optional[Iterable[str]] = None, data_origin: Optional[str] = None,
         signals: Optional[Iterable[str]] = None, wcs_min: Optional[float] = None, 
         wcs_max: Optional[float] = None, order_by_time: bool = True, limit: Optional[int] = None) -> pd.DataFrame:
@@ -284,7 +283,7 @@ class DuckDBLoader:
     # Place for your queries 
     # ----------------------------
 
-    def slot_metadata_summary(self, plate: str, *, data_origin: Optional[str] = None) -> pd.DataFrame:
+    def slot_metadata_summary(self, plate: int, *, data_origin: Optional[str] = None) -> pd.DataFrame:
         """Return one metadata row per slot for a plate.
 
         This mirrors the scalar metadata extracted in `summarize_chatter_cases`
@@ -331,7 +330,7 @@ class DuckDBLoader:
         query += " GROUP BY Nut ORDER BY Nut"
         return self.query_df(query, params)
 
-    def slot_chatter_cases_summary(self, plate: str, *, data_origin: Optional[str] = None) -> pd.DataFrame:
+    def slot_chatter_cases_summary(self, plate: int, *, data_origin: Optional[str] = None) -> pd.DataFrame:
         """Return chatter boundary rows per slot (long-form).
 
         Output format matches `summarize_chatter_cases` shape at the boundary:
@@ -387,8 +386,8 @@ class DuckDBLoader:
     
     def get_axiswise_plot_df(
         self,
-        plate: str,
-        slot: Optional[float] = None,
+        plate: int,
+        slot: Optional[int] = None,
         *,
         data_origin: Optional[str] = None,
         signals: Optional[Iterable[str]] = None,
