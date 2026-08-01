@@ -1,5 +1,6 @@
 from pathlib import Path
-from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError
+from typing import Iterable
+from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError, QueryValidationError
 from IPython.display import display, Markdown
 import pandas as pd
 import atexit
@@ -107,7 +108,7 @@ def init(db_path: Path | None = None, table_name: str ="my_table", project_root:
     # explicit db_path wins; otherwise auto-detect in the search path
     if db_path is None:
         db_path = _auto_db_path(project_root)
-        
+
     # Autodetect table name if not provided or set to None/empty
     autodetect_table = table_name is None or table_name == "" or table_name == "my_table"
     if autodetect_table:
@@ -151,20 +152,29 @@ def list_databases(project_root: Path | None = None) -> list[str]:
     root = _resolve_project_root(project_root)
     return [str(p) for p in _find_db_candidates(root)]
 
-def _show_user_error(message: str, hint: str | None = None) -> None:
-    text = f"###\n**{message}**"
-    if hint:
-        text += f"\n\n *Hint:* {hint}"
+def _notify_user(issues: Iterable[tuple[str, Iterable[str]]], generic_hint: str | None = None) -> None:
+    text = ""
+    for message, hints in issues:
+        text += f"### {message}\n"
+        for hint in hints or []:
+            if hint:
+                text += f"\n *Hint:* {hint}\n"
+    if generic_hint:
+        text += f"\n *Hint:* {generic_hint}\n"
     display(Markdown(text))
-    
+
+
 def _client_call(fn, *, empty_return, hint: str | None = None):
     if loader_global is None:
         raise RuntimeError("provider.init() must be called first")
 
     try:
         return fn()
+    except QueryValidationError as e:
+        _notify_user(e.issues, generic_hint=hint)
+        return empty_return
     except (DataNotFoundError, InvalidColumnError) as e:
-        _show_user_error(str(e), hint=hint)
+        _notify_user([(str(e), getattr(e, "hints", []))], generic_hint=hint)
         return empty_return
 
     
