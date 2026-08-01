@@ -96,7 +96,7 @@ def _safe_close_at_exit() -> None:
     except Exception:
         pass
 
-def init(db_path: Path | None = None, table_name: str ="my_table", project_root: Path | None = None, read_only: bool = True) -> None:
+def init(db_path: Path | None = None, table_name: str | None = None, project_root: Path | None = None, read_only: bool = True) -> None:
     global loader_global, _atexit_registed
 
     if not _atexit_registed:
@@ -108,18 +108,6 @@ def init(db_path: Path | None = None, table_name: str ="my_table", project_root:
     # explicit db_path wins; otherwise auto-detect in the search path
     if db_path is None:
         db_path = _auto_db_path(project_root)
-
-    # Autodetect table name if not provided or set to None/empty
-    autodetect_table = table_name is None or table_name == "" or table_name == "my_table"
-    if autodetect_table:
-        import duckdb
-        # detect from the raw DB path (db_path) regardless of whether a cache DB is used
-        con = duckdb.connect(str(db_path), read_only=True)
-        tables = con.execute("SHOW TABLES").fetchall()
-        if not tables:
-            raise RuntimeError(f"No tables found in DuckDB database: {db_path}")
-        table_name = tables[0][0]
-        con.close()
 
     loader_global = DuckDBLoader(Path(db_path), table_name=table_name, read_only=read_only)
 

@@ -24,8 +24,6 @@ This allows the query to be used outside of this file (notebooks, data_processin
 
 """
 
-table_var = "my_table"
-
 class DataNotFoundError(ValueError):
     """Raised when requested Plate/Nut does not exist, or a filter matches no rows."""
     def __init__(self, message: str, hints: Optional[list[str]] = None):
@@ -48,14 +46,13 @@ class DuckDBLoader:
     def __init__(
         self,
         db_path: Path,
-        table_name: str = table_var,
-        default_limit: int = 20000000,  #change the limits later 
+        table_name: Optional[str] = None,
+        default_limit: int = 20000000,  #change the limits later
         max_limit:  int = 200000000,    #change the limits later
         read_only: bool = False,
         pre_attach: str | None = None,
     ):
         self.db_path = Path(db_path)
-        self.table_name = table_name
         self.default_limit = default_limit
         self.max_limit = max_limit
         self.con = duckdb.connect(str(self.db_path), read_only= read_only)
@@ -67,7 +64,15 @@ class DuckDBLoader:
                 # best-effort: let schema load fail later with descriptive error
                 pass
 
+        # table_name=None means "auto-detect the single table in this database"
+        self.table_name = table_name if table_name is not None else self._detect_table()
         self._valid_cols = self._load_schema_cols()
+
+    def _detect_table(self) -> str:
+        tables = self.con.execute("SHOW TABLES").fetchall()
+        if not tables:
+            raise DataNotFoundError(f"No tables found in DuckDB database: {self.db_path}")
+        return tables[0][0]
       
         
     # ----------------------------
