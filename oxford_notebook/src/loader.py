@@ -47,14 +47,11 @@ class DuckDBLoader:
         self,
         db_path: Path,
         table_name: Optional[str] = None,
-        default_limit: int = 20000000,  #change the limits later
-        max_limit:  int = 200000000,    #change the limits later
         read_only: bool = False,
         pre_attach: str | None = None,
     ):
         self.db_path = Path(db_path)
-        self.default_limit = default_limit
-        self.max_limit = max_limit
+        self.read_only = read_only
         self.con = duckdb.connect(str(self.db_path), read_only= read_only)
         # run optional pre-attachment SQL (e.g., ATTACH raw DB) before loading schema
         if pre_attach is not None:
@@ -311,7 +308,6 @@ class DuckDBLoader:
             query += " ORDER BY Time"
             
         if limit is not None:
-            limit = min(int(limit), self.max_limit)
             query += " LIMIT ?"
             params.append(limit)
         
@@ -508,7 +504,6 @@ class DuckDBLoader:
             query += " ORDER BY Time"
 
         if limit is not None:
-            limit = min(int(limit), self.max_limit)
             query += " LIMIT ?"
             params.append(limit)
 
