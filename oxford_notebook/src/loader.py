@@ -100,8 +100,11 @@ class DuckDBLoader:
         slot_arg = f", {slot}" if slot is not None else ""
 
         validated_fields: Optional[list[str]] = None
-        if fields:
+        if fields is not None:
             fields = list(fields)
+            if not fields:
+                raise InvalidColumnError(
+                    "An empty column list is not valid; use fields=None to select all columns.")
             unknown = [c for c in fields if c not in self._valid_cols]
             if unknown:
                 issues.append((f"Unknown column(s): {unknown}",
@@ -304,7 +307,7 @@ class DuckDBLoader:
             query += " AND WCS_Y_mm <= ?"
             params.append(wcs_max)
         
-        if order_by_time and ("Time" in self._valid_cols) and (fields is None or "Time" in validated_fields):
+        if order_by_time and ("Time" in self._valid_cols) and (validated_fields is None or "Time" in validated_fields):
             query += " ORDER BY Time"
             
         if limit is not None:
