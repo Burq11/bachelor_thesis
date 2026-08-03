@@ -47,19 +47,10 @@ class DuckDBLoader:
         db_path: Path,
         table_name: Optional[str] = None,
         read_only: bool = False,
-        pre_attach: str | None = None,
     ):
         self.db_path = Path(db_path)
         self.read_only = read_only
         self.con = duckdb.connect(str(self.db_path), read_only= read_only)
-        # run optional pre-attachment SQL (e.g., ATTACH raw DB) before loading schema
-        if pre_attach is not None:
-            try:
-                self.con.execute(pre_attach)
-            except Exception:
-                # best-effort: let schema load fail later with descriptive error
-                pass
-
         # table_name=None means "auto-detect the single table in this database"
         self.table_name = table_name if table_name is not None else self._detect_table()
         self._valid_cols = self._load_schema_cols()
