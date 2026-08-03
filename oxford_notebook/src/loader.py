@@ -26,9 +26,8 @@ This allows the query to be used outside of this file (notebooks, data_processin
 
 class DataNotFoundError(ValueError):
     """Raised when requested Plate/Nut does not exist, or a filter matches no rows."""
-    def __init__(self, message: str, hints: Optional[list[str]] = None):
+    def __init__(self, message: str):
         super().__init__(message)
-        self.hints = hints or []
 
 class InvalidColumnError(ValueError):
     """Raised when requested columns are not part of the table schema"""
@@ -161,6 +160,7 @@ class DuckDBLoader:
      
     # Fetches data using get_data_df and applies groupby/aggregation.
     def get_grouped_data(self, group_by: list[str], agg: dict, *args, **kwargs) -> pd.DataFrame:
+        kwargs.setdefault("fields", list(dict.fromkeys(list(group_by) + list(agg))))
         df = self.get_data_df(*args, **kwargs)
         return df.groupby(group_by).agg(agg).reset_index() 
     
