@@ -26,9 +26,8 @@ This allows the query to be used outside of this file (notebooks, data_processin
 
 class DataNotFoundError(ValueError):
     """Raised when requested Plate/Nut does not exist, or a filter matches no rows."""
-    def __init__(self, message: str, hints: Optional[list[str]] = None):
+    def __init__(self, message: str):
         super().__init__(message)
-        self.hints = hints or []
 
 class InvalidColumnError(ValueError):
     """Raised when requested columns are not part of the table schema"""
@@ -47,23 +46,11 @@ class DuckDBLoader:
         self,
         db_path: Path,
         table_name: Optional[str] = None,
-        default_limit: int = 20000000,  #change the limits later
-        max_limit:  int = 200000000,    #change the limits later
         read_only: bool = False,
-        pre_attach: str | None = None,
     ):
         self.db_path = Path(db_path)
-        self.default_limit = default_limit
-        self.max_limit = max_limit
+        self.read_only = read_only
         self.con = duckdb.connect(str(self.db_path), read_only= read_only)
-        # run optional pre-attachment SQL (e.g., ATTACH raw DB) before loading schema
-        if pre_attach is not None:
-            try:
-                self.con.execute(pre_attach)
-            except Exception:
-                # best-effort: let schema load fail later with descriptive error
-                pass
-
         # table_name=None means "auto-detect the single table in this database"
         self.table_name = table_name if table_name is not None else self._detect_table()
         self._valid_cols = self._load_schema_cols()
@@ -164,6 +151,7 @@ class DuckDBLoader:
      
     # Fetches data using get_data_df and applies groupby/aggregation.
     def get_grouped_data(self, group_by: list[str], agg: dict, *args, **kwargs) -> pd.DataFrame:
+        kwargs.setdefault("fields", list(dict.fromkeys(list(group_by) + list(agg))))
         df = self.get_data_df(*args, **kwargs)
         return df.groupby(group_by).agg(agg).reset_index() 
     
@@ -311,7 +299,6 @@ class DuckDBLoader:
             query += " ORDER BY Time"
             
         if limit is not None:
-            limit = min(int(limit), self.max_limit)
             query += " LIMIT ?"
             params.append(limit)
         
@@ -508,7 +495,6 @@ class DuckDBLoader:
             query += " ORDER BY Time"
 
         if limit is not None:
-            limit = min(int(limit), self.max_limit)
             query += " LIMIT ?"
             params.append(limit)
 
