@@ -290,7 +290,7 @@ def butter_lowpass_filter_series(
 def filter_constant_HF_signals(df, signal_col="Signal", value_col="Value", origin_col="DataOrigin", hf_label="HF_Data"):
     """
     Entfernt HF-Signale, deren Werte über die Zeit konstant sind.
-    Alle anderen Daten (z. B. LF_Data, Oscilloscope) bleiben unverändert erhalten.
+    Alle anderen Daten (z. B. LF_Data, ET200) bleiben unverändert erhalten.
 
     Parameters
     ----------
@@ -401,7 +401,7 @@ def prepare_df_wide_for_pca(
     Parameters
     ----------
     df : pd.DataFrame
-        Original long-format dataframe (e.g. HF_Data or Oscilloscope data).
+        Original long-format dataframe (e.g. HF_Data or ET200 data).
     index_col : str
         Column to use as the index (default 'Duration_Seconds').
     signal_col : str
@@ -411,7 +411,7 @@ def prepare_df_wide_for_pca(
     pivot_fill_value : float
         Value to fill NaNs in pivot table (default 0.0).
     origin_filter : str, optional
-        Filter by DataOrigin (e.g., "HF_Data", "Oscilloscope").
+        Filter by DataOrigin (e.g., "HF_Data", "ET200").
     verbose : bool
         Print diagnostic info on dropped or cleaned columns.
 
@@ -551,7 +551,7 @@ def prepare_equal_bins_heatmap_sql(
     platte,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='Oscilloscope',
+    target_origin='ET200',
     *,
     compute_normalized_global: bool = False,
 ):
@@ -648,7 +648,7 @@ def get_min_max_amplitudes_sql_from_db(
     *,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='Oscilloscope',
+    target_origin='ET200',
 ):
     """Compute true min/max amplitude mapping without pandas extrema scan.
 
@@ -792,7 +792,7 @@ def get_min_max_amplitudes_sql(df_heatmap, platte):
     FROM {table}
     WHERE Platte = ?
       AND Axis = 'X'
-      AND DataOrigin = 'Oscilloscope'
+      AND DataOrigin = 'ET200'
       AND (
             (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?) OR
             (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?)
