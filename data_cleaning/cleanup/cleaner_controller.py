@@ -1,17 +1,36 @@
 from pathlib import Path
 import cleaner
 import duckdb
+import json
 import os
 import glob
 
 def get_recording_dirs(base_directory):
-    return [os.path.join(base_directory, d) for d in os.listdir(base_directory) 
+    return [os.path.join(base_directory, d) for d in os.listdir(base_directory)
             if os.path.isdir(os.path.join(base_directory, d))]
 
-def clean_one_recording(args):
-    recording_dir, r_param = args
-    
-    output_path = cleaner.cleaner(recording_dir, r_parameter=r_param)
+def get_nut_platte_from_tags(recording_dir):
+    session_dir = os.path.dirname(recording_dir)
+    meta_json_path = os.path.join(session_dir, "metadata.json")
+    folder_name = os.path.basename(recording_dir)
+
+    with open(meta_json_path, 'r') as f:
+        meta = json.load(f)
+
+    tags = meta.get("tags", {}).get(folder_name)
+    if tags is None:
+        raise ValueError(f"Keine Tags für '{folder_name}' in {meta_json_path} gefunden.")
+
+    nut = tags.get("R-Parameter Tag (R300)")
+    platte = tags.get("R-Parameter Tag (R301)")
+    if nut is None or platte is None:
+        raise ValueError(f"R300/R301-Tag fehlt für '{folder_name}' in {meta_json_path}.")
+
+    return int(nut), int(platte)
+
+def clean_one_recording(recording_dir):
+    nut, platte = get_nut_platte_from_tags(recording_dir)
+    output_path = cleaner.cleaner(recording_dir, nut=nut, platte=platte)
     return output_path, recording_dir
 
 def build_database(base_directory):
@@ -77,24 +96,23 @@ def clean_all_recordings(base_directory):
     if not recording_dirs:
         print("Keine Ordner gefunden.")
         return
-    
-    tasks = [(folder, i+1) for i, folder in enumerate(recording_dirs)]
-    
-    print(f"Starte sequenzielle Verarbeitung für {len(tasks)} Aufzeichnungen...")
-    
-    for i, task in enumerate(tasks):
+
+    print(f"Starte sequenzielle Verarbeitung für {len(recording_dirs)} Aufzeichnungen...")
+
+    for i, recording_dir in enumerate(recording_dirs):
+        print(recording_dir)
         try:
-            result = clean_one_recording(task)
-            
+            result = clean_one_recording(recording_dir)
+
             output_path, rec_dir = result
             folder_name = os.path.basename(rec_dir)
             
             if output_path:
-                print(f"[{i+1}/{len(tasks)}] ✅ {folder_name} (Parquet erstellt)")
+                print(f"[{i+1}/{len(recording_dirs)}] ✅ {folder_name} (Parquet erstellt)")
             else:
-                print(f"[{i+1}/{len(tasks)}] ⚠️ {folder_name} (Übersprungen/Fehler)")
-                
+                print(f"[{i+1}/{len(recording_dirs)}] ⚠️ {folder_name} (Übersprungen/Fehler)")
+
         except Exception as e:
-            folder_name = os.path.basename(task[0])
+            folder_name = os.path.basename(recording_dir)
             print(f"Fehler bei {folder_name}: {e}")
     build_database(base_directory)

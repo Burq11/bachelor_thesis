@@ -216,7 +216,7 @@ def process_et200_data(file_path: str) -> pl.DataFrame:
 def combine_all_data(dfs: list[pl.DataFrame]) -> pl.DataFrame:
     return pl.concat(dfs, how="diagonal")
 
-def cleaner(recording_dir: str, r_parameter: int):
+def cleaner(recording_dir: str, nut: int, platte: int = 1):
     hf_parquet_path = os.path.join(recording_dir, "hf.parquet")
     lf_parquet_path = os.path.join(recording_dir, "lf.parquet")
     et200_parquet_path = os.path.join(recording_dir, "et200.parquet")
@@ -257,8 +257,8 @@ def cleaner(recording_dir: str, r_parameter: int):
     df = calculate_duration_seconds(df, "Time") 
     df = calculate_wcs(df, signal_name="ENC_POS|2", new_column="WCS_Y_mm", offset=20)
     df = df.with_columns([
-        pl.lit(r_parameter).alias("Nut"),
-        pl.lit(1).alias("Platte")
+        pl.lit(nut).alias("Nut"),
+        pl.lit(platte).alias("Platte")
     ])
 
     df.sink_parquet(output_parquet_path)
