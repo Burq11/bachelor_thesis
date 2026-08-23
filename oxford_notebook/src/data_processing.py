@@ -551,7 +551,7 @@ def prepare_equal_bins_heatmap_sql(
     platte,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='ET200',
+    target_origin='ET200_Data',
     *,
     compute_normalized_global: bool = False,
 ):
@@ -648,7 +648,7 @@ def get_min_max_amplitudes_sql_from_db(
     *,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='ET200',
+    target_origin='ET200_Data',
 ):
     """Compute true min/max amplitude mapping without pandas extrema scan.
 
@@ -792,7 +792,7 @@ def get_min_max_amplitudes_sql(df_heatmap, platte):
     FROM {table}
     WHERE Platte = ?
       AND Axis = 'X'
-      AND DataOrigin = 'ET200'
+      AND DataOrigin = 'ET200_Data'
       AND (
             (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?) OR
             (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?)

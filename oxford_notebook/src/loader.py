@@ -326,7 +326,7 @@ class DuckDBLoader:
           - X_Position_Nut (signal R321)
           - Werkzeugradius (signal actToolRadius[u1])
           - Drehzahl (signal R330)
-          - Werkzeug (signal actToolIdent[u1,1], Value_String)
+          - Werkzeug (signal actToolIdent[u1], Value_String)
         """
 
         self._ensure_plate_exists(plate)
@@ -340,7 +340,7 @@ class DuckDBLoader:
                 MIN(CASE WHEN Signal = 'R321' THEN Value END) AS X_Position_Nut,
                 MIN(CASE WHEN Signal = 'actToolRadius[u1]' THEN Value END) AS Werkzeugradius,
                 MIN(CASE WHEN Signal = 'R330' THEN Value END) AS Drehzahl,
-                MIN(CASE WHEN Signal = 'actToolIdent[u1,1]' THEN Value_String END) AS Werkzeug
+                MIN(CASE WHEN Signal = 'actToolIdent[u1]' THEN Value_String END) AS Werkzeug
             FROM {self.table_name}
             WHERE Platte = ?
               AND Nut IS NOT NULL
@@ -349,7 +349,7 @@ class DuckDBLoader:
                 'R321',
                 'R330',
                 'actToolRadius[u1]',
-                'actToolIdent[u1,1]'
+                'actToolIdent[u1]'
               )
         """
         params: list = [plate]
