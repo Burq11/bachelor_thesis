@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Iterable
-from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError, QueryValidationError
+from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError, QueryValidationError, NoSignalBearingChannelsError
 from IPython.display import display, Markdown
 import pandas as pd
 import atexit
@@ -33,7 +33,10 @@ Plate_22_slot_1_df = provider.df(22, 1, fields=["Time", "Value"])
 """
 
 
-# this should be internal, private to the module. Singleton-like global instance. 
+# Re-exported so notebook code can catch it as `provider.NoSignalBearingChannelsError`.
+__all__ = ["NoSignalBearingChannelsError"]
+
+# this should be internal, private to the module. Singleton-like global instance.
 loader_global: DuckDBLoader | None = None
 
 _atexit_registed : bool = False

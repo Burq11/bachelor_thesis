@@ -41,7 +41,16 @@ class QueryValidationError(ValueError):
         self.issues = issues
         super().__init__("; ".join(msg for msg, _ in issues))
 
-class DuckDBLoader:         
+class NoSignalBearingChannelsError(DataNotFoundError):
+    """Origin has rows but none carry a WCS_Y_mm position (e.g. disconnected-sensor
+    noise), so there is no plottable vibration signal. Placeholder guard: revisit
+    when real accelerometer data lands."""
+    def __init__(self, plate, slot, data_origin: str):
+        self.plate, self.slot, self.data_origin = plate, slot, data_origin
+        super().__init__(f"DataOrigin={data_origin!r} has no WCS_Y_mm position for "
+                         f"plate={plate}, slot={slot}: nothing to plot.")
+
+class DuckDBLoader:
     def __init__(
         self,
         db_path: Path,
@@ -80,6 +89,21 @@ class DuckDBLoader:
                 raise DataNotFoundError(
                     f"No data for (plate={plate!r}, slot={slot}).")
                 
+    def _ensure_signal_bearing(self, plate: int, slot: Optional[int],
+                               data_origin: Optional[str]) -> None:
+        """Raise if the requested origin has no positioned (WCS_Y_mm) rows, so we
+        fail loud instead of plotting noise. Data-driven: self-heals when real data
+        lands. Placeholder — revisit with the new accelerometer data."""
+        if not data_origin or "WCS_Y_mm" not in self._valid_cols:
+            return
+        where = "Platte = ? AND DataOrigin = ? AND WCS_Y_mm IS NOT NULL"
+        params: list = [plate, data_origin]
+        if slot is not None:
+            where += " AND Nut = ?"
+            params.append(slot)
+        if not self._exists(where, params):
+            raise NoSignalBearingChannelsError(plate, slot, data_origin)
+
     def _validate_inputs(self, plate: int, slot: Optional[int] = None, *,
         fields: Optional[Iterable[str]] = None, data_origin: Optional[str] = None,
         signals: Optional[Iterable[str]] = None) -> Optional[list[str]]:
@@ -436,6 +460,7 @@ class DuckDBLoader:
         if slot is not None:
             self._ensure_plate_slot_exists(plate, slot)
         self._validate_inputs(plate, slot, data_origin=data_origin, signals=signals)
+        self._ensure_signal_bearing(plate, slot, data_origin)
 
         required_cols = [
             "Platte",
