@@ -1,4 +1,5 @@
 import itertools
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -599,13 +600,25 @@ def create_axiswise_plots2(
     # Assume the incoming DataFrame is already filtered by `DataOrigin` upstream.
     # Work on a copy to avoid mutating the caller's DataFrame.
     df_filtered = df.copy()
-    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
+
+    # Guard: an empty DataFrame carries no columns, so every column access below
+    # would raise. Upstream (provider.axiswise_plot_df) already explains *why* it
+    # is empty - here we just return no figures instead of crashing.
+    if df_filtered.empty:
+        warnings.warn(
+            "create_axiswise_plots2: empty Data Frame, can't generate a plot.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return {}
 
     # Guard: required columns must exist in the provided (pre-filtered) DataFrame.
     required_cols = [signal_column, x_column, y_column, axis_column]
     missing = [c for c in required_cols if c not in df_filtered.columns]
     if missing:
         raise ValueError(f"create_axiswise_plots2: missing required columns in df (expected): {missing}")
+
+    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
 
     if hoverdict is None:
         hoverdict = {
