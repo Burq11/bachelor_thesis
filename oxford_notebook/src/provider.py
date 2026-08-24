@@ -329,7 +329,8 @@ def axiswise_plot_df(
         empty_return=pd.DataFrame(),
         hint="Check plate/slot and schema via provider.plates(), provider.slots(), provider.schema().",
     )
-    
+
+
 """
 Wrapper Schema
 --------------
