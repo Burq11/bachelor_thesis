@@ -475,14 +475,35 @@ class DuckDBLoader:
             "Groupname",
             "Unit",
             "Description",
-            "HFBlockEvent_GCode",
-            "HFProbeCounter",
+            "Label",
+            "NcCode",
+            "NcComment",
+            "IpoGC",
+            "Cycle",
         ]
         # keep only columns that actually exist in schema
         fields = [column for column in required_cols if column in self._valid_cols]
         if not fields:
             raise InvalidColumnError("No plot columns found in schema.")
-        select_clause = ", ".join(fields)
+
+        select_parts = list(fields)
+        # Labels for plot annotations
+        if "NcCode" in self._valid_cols:
+            if "NcComment" in self._valid_cols:
+                select_parts.append(
+                    "CASE WHEN NcComment IS NOT NULL AND NcComment <> '' "
+                    "THEN NcCode || ' ; ' || NcComment ELSE NcCode END AS GCode_Label"
+                )
+            else:
+                select_parts.append("NcCode AS GCode_Label")
+
+        # Labels and Descriptions for signals
+        name_sources = [c for c in ("Label", "Description") if c in self._valid_cols]
+        if name_sources and "Signal" in self._valid_cols:
+            coalesced = ", ".join(name_sources + ["Signal"])
+            select_parts.append(f"COALESCE({coalesced}) AS Signal_Label")
+
+        select_clause = ", ".join(select_parts)
 
         query = f"""
             SELECT {select_clause}
