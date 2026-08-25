@@ -42,8 +42,8 @@ class QueryValidationError(ValueError):
 
 class NoSignalBearingChannelsError(DataNotFoundError):
     """Origin has rows but none carry a WCS_Y_mm position (e.g. disconnected-sensor
-    noise), so there is no plottable vibration signal. Placeholder guard: revisit
-    when real accelerometer data lands."""
+    noise), so there is no plottable vibration signal. Raised by
+    `get_axiswise_plot_df`; revisit when real accelerometer data lands."""
     def __init__(self, plate, slot, data_origin: str):
         self.plate, self.slot, self.data_origin = plate, slot, data_origin
         super().__init__(f"DataOrigin={data_origin!r} has no WCS_Y_mm position for "
@@ -435,6 +435,12 @@ class DuckDBLoader:
         # nothing came back: explain which filter is responsible instead of returning a bare empty frame
         if df.empty:
             raise QueryValidationError(self._diagnose_empty(specs))
+
+        # rows came back but none carry a position: unplottable, so fail loudly instead
+        # of handing callers a frame that renders as empty axes. Keys on WCS_Y_mm only --
+        # LF_Data has position but no Axis and must still pass.
+        if "WCS_Y_mm" in df.columns and df["WCS_Y_mm"].isna().all():
+            raise NoSignalBearingChannelsError(plate, slot, data_origin)
 
         if "Time" in df.columns:
             df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
