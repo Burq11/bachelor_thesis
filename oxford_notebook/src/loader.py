@@ -283,7 +283,7 @@ class DuckDBLoader:
             
         if signals:
             signals = list(signals)
-            placeholders = ", ".join(["?"] * len(signals)) ## so we are adding this many placeholders as there is the lengt of signals 
+            placeholders = ", ".join(["?"] * len(signals))  
             query += f" AND Signal IN ({placeholders})"
             params.extend(signals)
             
