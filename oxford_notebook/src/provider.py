@@ -142,12 +142,14 @@ def list_databases(project_root: Path | None = None) -> list[str]:
 
 def _notify_user(issues: Iterable[tuple[str, Iterable[str]]], generic_hint: str | None = None) -> None:
     text = ""
+    has_specific_hint = False
     for message, hints in issues:
         text += f"### {message}\n"
         for hint in hints or []:
             if hint:
+                has_specific_hint = True
                 text += f"\n *Hint:* {hint}\n"
-    if generic_hint:
+    if generic_hint and not has_specific_hint:
         text += f"\n *Hint:* {generic_hint}\n"
     display(Markdown(text))
 
