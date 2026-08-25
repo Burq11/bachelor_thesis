@@ -26,8 +26,7 @@ This allows the query to be used outside of this file (notebooks, data_processin
 
 class DataNotFoundError(ValueError):
     """Raised when requested Plate/Nut does not exist, or a filter matches no rows."""
-    def __init__(self, message: str):
-        super().__init__(message)
+    pass
 
 class InvalidColumnError(ValueError):
     """Raised when requested columns are not part of the table schema"""
@@ -62,151 +61,6 @@ class DuckDBLoader:
         return tables[0][0]
       
         
-    # ----------------------------
-    # Validation
-    # ----------------------------
-    def _exists(self, where_sql: str, params: list ) -> bool:
-        q = f"SELECT 1 FROM {self.table_name} WHERE {where_sql} LIMIT 1"
-        return self.con.execute(q,params).fetchone() is not None
-
-    def _ensure_plate_exists(self, plate: int) -> None:
-        if not self._exists("Platte = ? AND Platte IS NOT NULL", [plate]):
-            raise DataNotFoundError(f"Unknown plate={plate!r}.")
-        
-    def _ensure_plate_slot_exists(self, plate: int, slot: int) -> None:
-            if not self._exists("Platte = ? AND Nut = ?", [plate, slot]):
-                if not self._exists("Platte = ?", [plate]):
-                    raise DataNotFoundError(f"Unknown plate={plate!r}.")
-                raise DataNotFoundError(
-                    f"No data for (plate={plate!r}, slot={slot}).")
-                
-    def _validate_fields(self, fields: Optional[Iterable[str]]) -> Optional[list[str]]:
-        """Check requested columns against the schema. Local only, no database roundtrip."""
-        if fields is None:
-            return None
-        fields = list(fields)
-        if not fields:
-            raise InvalidColumnError(
-                "An empty column list is not valid; use fields=None to select all columns.")
-        unknown = [c for c in fields if c not in self._valid_cols]
-        if unknown:
-            raise QueryValidationError([(f"Unknown column(s): {unknown}",
-                                         ["Use provider.schema() to see valid columns"])])
-        return fields
-
-    # ----------------------------
-    # Filter specs and empty-result diagnosis
-    # ----------------------------
-
-    def _filter_specs(self, plate: int, slot: Optional[int] = None, *,
-        data_origin: Optional[str] = None, signals: Optional[Iterable[str]] = None,
-        wcs_min: Optional[float] = None, wcs_max: Optional[float] = None,
-        extra: Optional[list[tuple]] = None) -> list[tuple]:
-        specs: list[tuple] = [(f"Platte={plate!r}", "Platte", "Platte = ?", [plate])]
-
-        if slot is not None:
-            specs.append((f"Nut={slot!r}", "Nut", "Nut = ?", [slot]))
-
-        if data_origin:
-            specs.append((f"DataOrigin={data_origin!r}", "DataOrigin", "DataOrigin = ?", [data_origin]))
-
-        if signals:
-            signals = list(signals)
-            placeholders = ", ".join(["?"] * len(signals))
-            specs.append((f"Signal in {signals!r}", "Signal", f"Signal IN ({placeholders})", signals))
-
-        # range filters: listing distinct values would not help, so column is None
-        if wcs_min is not None:
-            specs.append((f"WCS_Y_mm >= {wcs_min}", None, "WCS_Y_mm >= ?", [wcs_min]))
-
-        if wcs_max is not None:
-            specs.append((f"WCS_Y_mm <= {wcs_max}", None, "WCS_Y_mm <= ?", [wcs_max]))
-
-        if extra:
-            specs.extend(extra)
-
-        return specs
-
-    @staticmethod
-    def _where_sql(specs: list[tuple], skip: Optional[int] = None) -> tuple[str, list]:
-        """Join filter specs into a WHERE body, optionally leaving one out."""
-        parts: list[str] = []
-        params: list = []
-        for index, (_, _, sql, spec_params) in enumerate(specs):
-            if index == skip:
-                continue
-            parts.append(sql)
-            params.extend(spec_params)
-        return (" AND ".join(parts) if parts else "TRUE"), params
-
-    def _suggest_values(self, specs: list[tuple], index: int, limit: int = 20) -> list:
-        """Values available for one filter's column once the other filters are applied."""
-        column = specs[index][1]
-        if column is None:
-            return []
-        where_sql, params = self._where_sql(specs, skip=index)
-        query = f"""
-            SELECT DISTINCT {column}
-            FROM {self.table_name}
-            WHERE {where_sql}
-            AND {column} IS NOT NULL
-            LIMIT {int(limit)}
-        """
-        return [row[0] for row in self.con.execute(query, params).fetchall()]
-
-    def _diagnose_empty(self, specs: list[tuple]) -> list[tuple[str, list[str]]]:
-        """
-        Explain an empty result by leave-one-out attribution.
-        """
-        described = ", ".join(label for label, _, _, _ in specs)
-        if not specs:
-            return [("The query returned no rows.", [])]
-
-        # If the filters together do match rows, the emptiness came from something downstream
-        where_sql, where_params = self._where_sql(specs)
-        matched = self.con.execute(
-            f"SELECT COUNT(*) FROM {self.table_name} WHERE {where_sql}", where_params).fetchone()[0]
-        if matched:
-            return [(f"No rows in the result for: {described}",
-                     [f"The filters match {matched:,} rows, so the query returned nothing "
-                      "after grouping/aggregation rather than because of a filter.",
-                      "The signals this query aggregates are probably absent from that selection."])]
-
-        selects: list[str] = []
-        params: list = []
-        for index in range(len(specs)):
-            where_sql, where_params = self._where_sql(specs, skip=index)
-            selects.append(f"bool_or({where_sql}) AS c{index}")
-            params.extend(where_params)
-
-        query = f"SELECT {', '.join(selects)} FROM {self.table_name}"
-        matches = self.con.execute(query, params).fetchone()
-
-        culprits = [index for index, matched in enumerate(matches) if matched]
-
-        # Removing any single filter still returns nothing: not a filter mistake.
-        if not culprits:
-            return [(f"No rows matched: {described}",
-                     ["Removing any single filter still returns nothing, so this selection "
-                      "is genuinely empty rather than mis-filtered.",
-                      "Use provider.plate_slots() to check the plate and slot exist at all."])]
-
-        hints: list[str] = []
-        for index in culprits:
-            label, column = specs[index][0], specs[index][1]
-            values = self._suggest_values(specs, index)
-            if values:
-                hints.append(f"Available {column}: {', '.join(str(v) for v in values)}")
-            else:
-                # range filters have no values to list, so just name the culprit
-                hints.append(f"Dropping {label} brings rows back.")
-
-        if len(culprits) > 1:
-            hints.append("Each of these filters matches on its own, but they never co-occur.")
-
-        return [(f"No rows matched: {described}", hints)]
-
-    
     # ----------------------------
     # Utilities
     # ----------------------------
@@ -564,6 +418,159 @@ class DuckDBLoader:
     #     df = self.query_df(query, params)
     #     return df
 
+    # ----------------------------
+    # Internals: input checks and empty-result diagnosis
+    # ----------------------------
+    # These build the structured issues carried by QueryValidationError.
+    # provider._client_call catches that error and renders the issues for
+    # the user, so this machinery is what makes a failed query explain itself.
+    # You rarely need to touch this to add a query.
+
+    # ----------------------------
+    # Validation
+    # ----------------------------
+    def _exists(self, where_sql: str, params: list ) -> bool:
+        q = f"SELECT 1 FROM {self.table_name} WHERE {where_sql} LIMIT 1"
+        return self.con.execute(q,params).fetchone() is not None
+
+    def _ensure_plate_exists(self, plate: int) -> None:
+        if not self._exists("Platte = ? AND Platte IS NOT NULL", [plate]):
+            raise DataNotFoundError(f"Unknown plate={plate!r}.")
+        
+    def _ensure_plate_slot_exists(self, plate: int, slot: int) -> None:
+            if not self._exists("Platte = ? AND Nut = ?", [plate, slot]):
+                if not self._exists("Platte = ?", [plate]):
+                    raise DataNotFoundError(f"Unknown plate={plate!r}.")
+                raise DataNotFoundError(
+                    f"No data for (plate={plate!r}, slot={slot}).")
+                
+    def _validate_fields(self, fields: Optional[Iterable[str]]) -> Optional[list[str]]:
+        """Check requested columns against the schema. Local only, no database roundtrip."""
+        if fields is None:
+            return None
+        fields = list(fields)
+        if not fields:
+            raise InvalidColumnError(
+                "An empty column list is not valid; use fields=None to select all columns.")
+        unknown = [c for c in fields if c not in self._valid_cols]
+        if unknown:
+            raise QueryValidationError([(f"Unknown column(s): {unknown}",
+                                         ["Use provider.schema() to see valid columns"])])
+        return fields
+
+    # ----------------------------
+    # Filter specs and empty-result diagnosis
+    # ----------------------------
+
+    def _filter_specs(self, plate: int, slot: Optional[int] = None, *,
+        data_origin: Optional[str] = None, signals: Optional[Iterable[str]] = None,
+        wcs_min: Optional[float] = None, wcs_max: Optional[float] = None,
+        extra: Optional[list[tuple]] = None) -> list[tuple]:
+        specs: list[tuple] = [(f"Platte={plate!r}", "Platte", "Platte = ?", [plate])]
+
+        if slot is not None:
+            specs.append((f"Nut={slot!r}", "Nut", "Nut = ?", [slot]))
+
+        if data_origin:
+            specs.append((f"DataOrigin={data_origin!r}", "DataOrigin", "DataOrigin = ?", [data_origin]))
+
+        if signals:
+            signals = list(signals)
+            placeholders = ", ".join(["?"] * len(signals))
+            specs.append((f"Signal in {signals!r}", "Signal", f"Signal IN ({placeholders})", signals))
+
+        # range filters: listing distinct values would not help, so column is None
+        if wcs_min is not None:
+            specs.append((f"WCS_Y_mm >= {wcs_min}", None, "WCS_Y_mm >= ?", [wcs_min]))
+
+        if wcs_max is not None:
+            specs.append((f"WCS_Y_mm <= {wcs_max}", None, "WCS_Y_mm <= ?", [wcs_max]))
+
+        if extra:
+            specs.extend(extra)
+
+        return specs
+
+    @staticmethod
+    def _where_sql(specs: list[tuple], skip: Optional[int] = None) -> tuple[str, list]:
+        """Join filter specs into a WHERE body, optionally leaving one out."""
+        parts: list[str] = []
+        params: list = []
+        for index, (_, _, sql, spec_params) in enumerate(specs):
+            if index == skip:
+                continue
+            parts.append(sql)
+            params.extend(spec_params)
+        return (" AND ".join(parts) if parts else "TRUE"), params
+
+    def _suggest_values(self, specs: list[tuple], index: int, limit: int = 20) -> list:
+        """Values available for one filter's column once the other filters are applied."""
+        column = specs[index][1]
+        if column is None:
+            return []
+        where_sql, params = self._where_sql(specs, skip=index)
+        query = f"""
+            SELECT DISTINCT {column}
+            FROM {self.table_name}
+            WHERE {where_sql}
+            AND {column} IS NOT NULL
+            LIMIT {int(limit)}
+        """
+        return [row[0] for row in self.con.execute(query, params).fetchall()]
+
+    def _diagnose_empty(self, specs: list[tuple]) -> list[tuple[str, list[str]]]:
+        """
+        Explain an empty result by leave-one-out attribution.
+        """
+        described = ", ".join(label for label, _, _, _ in specs)
+        if not specs:
+            return [("The query returned no rows.", [])]
+
+        # If the filters together do match rows, the emptiness came from something downstream
+        where_sql, where_params = self._where_sql(specs)
+        matched = self.con.execute(
+            f"SELECT COUNT(*) FROM {self.table_name} WHERE {where_sql}", where_params).fetchone()[0]
+        if matched:
+            return [(f"No rows in the result for: {described}",
+                     [f"The filters match {matched:,} rows, so the query returned nothing "
+                      "after grouping/aggregation rather than because of a filter.",
+                      "The signals this query aggregates are probably absent from that selection."])]
+
+        selects: list[str] = []
+        params: list = []
+        for index in range(len(specs)):
+            where_sql, where_params = self._where_sql(specs, skip=index)
+            selects.append(f"bool_or({where_sql}) AS c{index}")
+            params.extend(where_params)
+
+        query = f"SELECT {', '.join(selects)} FROM {self.table_name}"
+        matches = self.con.execute(query, params).fetchone()
+
+        culprits = [index for index, matched in enumerate(matches) if matched]
+
+        # Removing any single filter still returns nothing: not a filter mistake.
+        if not culprits:
+            return [(f"No rows matched: {described}",
+                     ["Removing any single filter still returns nothing, so this selection "
+                      "is genuinely empty rather than mis-filtered.",
+                      "Use provider.plate_slots() to check the plate and slot exist at all."])]
+
+        hints: list[str] = []
+        for index in culprits:
+            label, column = specs[index][0], specs[index][1]
+            values = self._suggest_values(specs, index)
+            if values:
+                hints.append(f"Available {column}: {', '.join(str(v) for v in values)}")
+            else:
+                # range filters have no values to list, so just name the culprit
+                hints.append(f"Dropping {label} brings rows back.")
+
+        if len(culprits) > 1:
+            hints.append("Each of these filters matches on its own, but they never co-occur.")
+
+        return [(f"No rows matched: {described}", hints)]
+
+    
     # ----------------------------
     # Closing the connection to DB
     # ----------------------------
