@@ -278,7 +278,7 @@ class DuckDBLoader:
 
         df = self.query_df(query, params)
         if df.empty:
-            raise QueryValidationError(self._diagnose_empty(specs))
+            raise QueryValidationError(self._diagnose_empty(specs, aggregated=True))
         return df
 
     def slot_chatter_cases_summary(self, plate: int, *, data_origin: Optional[str] = None) -> pd.DataFrame:
@@ -330,7 +330,7 @@ class DuckDBLoader:
 
         df = self.query_df(query, params)
         if df.empty:
-            raise QueryValidationError(self._diagnose_empty(specs))
+            raise QueryValidationError(self._diagnose_empty(specs, aggregated=True))
         return df
     
     def get_axiswise_plot_df(
@@ -518,9 +518,14 @@ class DuckDBLoader:
         """
         return [row[0] for row in self.con.execute(query, params).fetchall()]
 
-    def _diagnose_empty(self, specs: list[tuple]) -> list[tuple[str, list[str]]]:
+    def _diagnose_empty(self, specs: list[tuple], *,
+        aggregated: bool = False) -> list[tuple[str, list[str]]]:
         """
         Explain an empty result by leave-one-out attribution.
+
+        Set aggregated=True for queries that GROUP BY, so that a result which is
+        empty despite matching rows is explained by the aggregation rather than
+        by a filter. Raw row queries must leave it False.
         """
         described = ", ".join(label for label, _, _, _ in specs)
         if not specs:
@@ -531,10 +536,14 @@ class DuckDBLoader:
         matched = self.con.execute(
             f"SELECT COUNT(*) FROM {self.table_name} WHERE {where_sql}", where_params).fetchone()[0]
         if matched:
-            return [(f"No rows in the result for: {described}",
-                     [f"The filters match {matched:,} rows, so the query returned nothing "
-                      "after grouping/aggregation rather than because of a filter.",
-                      "The signals this query aggregates are probably absent from that selection."])]
+            if aggregated:
+                hints = [f"The filters match {matched:,} rows, so the query returned nothing "
+                         "after grouping/aggregation rather than because of a filter.",
+                         "The signals this query aggregates are probably absent from that selection."]
+            else:
+                hints = [f"The filters match {matched:,} rows, so no filter is responsible.",
+                         "Check the limit argument: limit=0 (or negative) returns no rows."]
+            return [(f"No rows in the result for: {described}", hints)]
 
         selects: list[str] = []
         params: list = []
