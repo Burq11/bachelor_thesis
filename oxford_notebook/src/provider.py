@@ -164,7 +164,7 @@ def _client_call(fn, *, empty_return, hint: str | None = None):
         _notify_user(e.issues, generic_hint=hint)
         return empty_return
     except (DataNotFoundError, InvalidColumnError) as e:
-        _notify_user([(str(e), getattr(e, "hints", []))], generic_hint=hint)
+        _notify_user([(str(e), [])], generic_hint=hint)
         return empty_return
 
     
