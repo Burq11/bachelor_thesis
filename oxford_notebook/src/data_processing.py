@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 from scipy.signal import butter, filtfilt
+import warnings
 import numpy as np
 import plotly.graph_objects as go
 from scipy.sparse import csr_matrix
@@ -38,7 +39,7 @@ def extract_unique_signal_values(df, origin="LF_Data"):
 
 
 
-def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = None) -> pd.DataFrame:
+def summarize_chatter_cases_sql(plate_number: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """DuckDB-first summary for the heatmap overlays (no per-slot raw loads).
 
     Produces a DataFrame compatible with downstream plotting code that expects the
@@ -50,8 +51,8 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
     - Keeps column names stable to avoid any visual/logic changes.
     """
 
-    meta = provider.slot_metadata_summary(str(plate_number), data_origin=data_origin)
-    chatter = provider.slot_chatter_cases_summary(str(plate_number), data_origin=data_origin)
+    meta = provider.slot_metadata_summary(int(plate_number), data_origin=data_origin)
+    chatter = provider.slot_chatter_cases_summary(int(plate_number), data_origin=data_origin)
 
     if chatter is None or chatter.empty:
         return pd.DataFrame(columns=[
@@ -68,7 +69,7 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
 
     df = chatter.merge(meta, on="Nut", how="left")
     df["Nut_ID"] = df.get("Nut_ID", df["Nut"])
-    df["Platte"] = str(plate_number)
+    df["Platte"] = int(plate_number)
     return df[[
         "Chatter",
         "Y_max",
@@ -82,8 +83,8 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
     ]]
 
 
-# # NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
-def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
+# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+def analyze_platte(plate_number: int, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
     """
     SQL-first implementation: produce per-slot summaries for a plate using
     `summarize_chatter_cases_sql` (no per-slot raw DataFrame loading).
@@ -101,7 +102,7 @@ def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwa
     df_kwargs = df_kwargs or {}
 
     # Use the SQL-first summarizer
-    df_summary = summarize_chatter_cases_sql(str(plate_number))
+    df_summary = summarize_chatter_cases_sql(int(plate_number))
     if df_summary is None or df_summary.empty:
         return pd.DataFrame(), None
 
@@ -116,7 +117,7 @@ def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwa
 
 
 
-def filter_unique_gcodes(df, signal_column='Signal', gcode_column='HFBlockEvent_GCode', sort_column='Time'):
+def filter_unique_gcodes(df, signal_column='Signal', gcode_column='GCode_Label', sort_column='Time'):
     """
     Filtert den DataFrame nach dem ersten Signal in der angegebenen Signal-Spalte, sortiert ihn optional nach einer 
     angegebenen Spalte und entfernt Duplikate basierend auf dem ersten Vorkommen jedes GCode-Wertes.
@@ -128,7 +129,8 @@ def filter_unique_gcodes(df, signal_column='Signal', gcode_column='HFBlockEvent_
     signal_column : str, optional
         Der Name der Spalte, die die Signal-Daten enthält (default ist 'Signal').
     gcode_column : str, optional
-        Der Name der Spalte, die die GCode-Daten enthält (default ist 'HFBlockEvent_GCode').
+        Der Name der Spalte, die die GCode-Daten enthält (default ist 'GCode_Label',
+        zusammengesetzt aus NcCode + ' ; ' + NcComment durch `get_axiswise_plot_df`).
     sort_column : str, optional
         Der Name der Spalte, nach der der DataFrame vor dem Filtern und Entfernen von Duplikaten sortiert werden soll (default ist 'Time').
 
@@ -148,6 +150,23 @@ def filter_unique_gcodes(df, signal_column='Signal', gcode_column='HFBlockEvent_
     # Filtern des DataFrames für das erste Signal in der Signal-Spalte
     first_signal = df[signal_column].unique()[0]
     df_filtered = df.loc[df[signal_column] == first_signal]
+
+    # Zeilen ohne GCode verwerfen. Die neue DB liefert NULL-Werte in NcCode (die alte
+    # hatte keine); sonst überlebt eine NULL-Zeile das drop_duplicates und wird als
+    # unbeschriftete vline gezeichnet.
+    n_before = len(df_filtered)
+    df_filtered = df_filtered.loc[df_filtered[gcode_column].notna()]
+
+    # ET200_Data und LF_Data fuehren in der neuen DB gar keinen NcCode: dann bleibt hier
+    # nichts uebrig und die Plots erhalten still keine Annotationen. Lieber warnen.
+    if n_before and df_filtered.empty:
+        warnings.warn(
+            f"filter_unique_gcodes: alle {n_before} Zeilen haben NULL in {gcode_column!r} - "
+            "es werden keine GCode-Annotationen gezeichnet. Betrifft u.a. DataOrigin "
+            "'ET200_Data' und 'LF_Data'; GCodes liegen dort nur im HF_Event-Kanal.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     # Entfernen von Duplikaten, basierend auf dem ersten Vorkommen jedes GCode-Wertes
     df_filtered = df_filtered.drop_duplicates(subset=gcode_column, keep='first').copy()
@@ -289,7 +308,7 @@ def butter_lowpass_filter_series(
 def filter_constant_HF_signals(df, signal_col="Signal", value_col="Value", origin_col="DataOrigin", hf_label="HF_Data"):
     """
     Entfernt HF-Signale, deren Werte über die Zeit konstant sind.
-    Alle anderen Daten (z. B. LF_Data, Oscilloscope) bleiben unverändert erhalten.
+    Alle anderen Daten (z. B. LF_Data, ET200_Data) bleiben unverändert erhalten.
 
     Parameters
     ----------
@@ -400,7 +419,7 @@ def prepare_df_wide_for_pca(
     Parameters
     ----------
     df : pd.DataFrame
-        Original long-format dataframe (e.g. HF_Data or Oscilloscope data).
+        Original long-format dataframe (e.g. HF_Data or ET200_Data).
     index_col : str
         Column to use as the index (default 'Duration_Seconds').
     signal_col : str
@@ -410,7 +429,7 @@ def prepare_df_wide_for_pca(
     pivot_fill_value : float
         Value to fill NaNs in pivot table (default 0.0).
     origin_filter : str, optional
-        Filter by DataOrigin (e.g., "HF_Data", "Oscilloscope").
+        Filter by DataOrigin (e.g., "HF_Data", "ET200_Data").
     verbose : bool
         Print diagnostic info on dropped or cleaned columns.
 
@@ -550,7 +569,7 @@ def prepare_equal_bins_heatmap_sql(
     platte,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='Oscilloscope',
+    target_origin='ET200_Data',
     *,
     compute_normalized_global: bool = False,
 ):
@@ -563,7 +582,7 @@ def prepare_equal_bins_heatmap_sql(
     table = provider.table()
 
     # Notes on schema:
-    # - Single table with columns incl. Platte (VARCHAR) + Nut (DOUBLE)
+    # - Single table with columns incl. Platte (INTEGER) + Nut (INTEGER)
     # - We bin WCS_Y_mm into equal bins per Nut starting at 0
     # - For the last bin, we truncate Y_max to the actual slot max(WCS_Y_mm)
     normalized_select = ""
@@ -631,7 +650,7 @@ def prepare_equal_bins_heatmap_sql(
     """
 
     params = [
-        str(platte),
+        int(platte),
         str(target_signal),
         str(target_origin),
         float(bin_size_mm),
@@ -647,7 +666,7 @@ def get_min_max_amplitudes_sql_from_db(
     *,
     bin_size_mm=10,
     target_signal='X',
-    target_origin='Oscilloscope',
+    target_origin='ET200_Data',
 ):
     """Compute true min/max amplitude mapping without pandas extrema scan.
 
@@ -735,13 +754,13 @@ def get_min_max_amplitudes_sql_from_db(
     """
 
     params = [
-        str(platte),
+        int(platte),
         str(target_signal),
         str(target_origin),
         float(bin_size_mm),
         float(bin_size_mm),
         float(bin_size_mm),
-        str(platte),
+        int(platte),
         str(target_signal),
         str(target_origin),
     ]

@@ -40,7 +40,16 @@ class QueryValidationError(ValueError):
         self.issues = issues
         super().__init__("; ".join(msg for msg, _ in issues))
 
-class DuckDBLoader:         
+class NoSignalBearingChannelsError(DataNotFoundError):
+    """Origin has rows but none carry a WCS_Y_mm position (e.g. disconnected-sensor
+    noise), so there is no plottable vibration signal. Placeholder guard: revisit
+    when real accelerometer data lands."""
+    def __init__(self, plate, slot, data_origin: str):
+        self.plate, self.slot, self.data_origin = plate, slot, data_origin
+        super().__init__(f"DataOrigin={data_origin!r} has no WCS_Y_mm position for "
+                         f"plate={plate}, slot={slot}: nothing to plot.")
+
+class DuckDBLoader:
     def __init__(
         self,
         db_path: Path,
@@ -245,7 +254,7 @@ class DuckDBLoader:
           - X_Position_Nut (signal R321)
           - Werkzeugradius (signal actToolRadius[u1])
           - Drehzahl (signal R330)
-          - Werkzeug (signal actToolIdent[u1,1], Value_String)
+          - Werkzeug (signal actToolIdent[u1], Value_String)
         """
 
         metadata_signals = ["R319", "R321", "R330", "actToolRadius[u1]", "actToolIdent[u1,1]"]
@@ -269,11 +278,17 @@ class DuckDBLoader:
                 MIN(CASE WHEN Signal = 'R321' THEN Value END) AS X_Position_Nut,
                 MIN(CASE WHEN Signal = 'actToolRadius[u1]' THEN Value END) AS Werkzeugradius,
                 MIN(CASE WHEN Signal = 'R330' THEN Value END) AS Drehzahl,
-                MIN(CASE WHEN Signal = 'actToolIdent[u1,1]' THEN Value_String END) AS Werkzeug
+                MIN(CASE WHEN Signal = 'actToolIdent[u1]' THEN Value_String END) AS Werkzeug
             FROM {self.table_name}
-            WHERE {where_sql}
-            GROUP BY Nut
-            ORDER BY Nut
+            WHERE Platte = ?
+              AND Nut IS NOT NULL
+              AND Signal IN (
+                'R319',
+                'R321',
+                'R330',
+                'actToolRadius[u1]',
+                'actToolIdent[u1]'
+              )
         """
 
         df = self.query_df(query, params)
@@ -364,14 +379,35 @@ class DuckDBLoader:
             "Groupname",
             "Unit",
             "Description",
-            "HFBlockEvent_GCode",
-            "HFProbeCounter",
+            "Label",
+            "NcCode",
+            "NcComment",
+            "IpoGC",
+            "Cycle",
         ]
         # keep only columns that actually exist in schema
         fields = [column for column in required_cols if column in self._valid_cols]
         if not fields:
             raise InvalidColumnError("No plot columns found in schema.")
-        select_clause = ", ".join(fields)
+
+        select_parts = list(fields)
+        # Labels for plot annotations
+        if "NcCode" in self._valid_cols:
+            if "NcComment" in self._valid_cols:
+                select_parts.append(
+                    "CASE WHEN NcComment IS NOT NULL AND NcComment <> '' "
+                    "THEN NcCode || ' ; ' || NcComment ELSE NcCode END AS GCode_Label"
+                )
+            else:
+                select_parts.append("NcCode AS GCode_Label")
+
+        # Labels and Descriptions for signals
+        name_sources = [c for c in ("Label", "Description") if c in self._valid_cols]
+        if name_sources and "Signal" in self._valid_cols:
+            coalesced = ", ".join(name_sources + ["Signal"])
+            select_parts.append(f"COALESCE({coalesced}) AS Signal_Label")
+
+        select_clause = ", ".join(select_parts)
 
         specs = self._filter_specs(
             plate, slot, data_origin=data_origin, signals=signals,
