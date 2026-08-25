@@ -34,7 +34,6 @@ data/2025-05_Oxford_und_Rebecka/
 tests/tests_equiv
 
 oxford_notebook/testing/
-
-# ---- Copilot ----
 .github/
 *docs/
+.claude/
