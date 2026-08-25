@@ -80,46 +80,131 @@ class DuckDBLoader:
                 raise DataNotFoundError(
                     f"No data for (plate={plate!r}, slot={slot}).")
                 
-    def _validate_inputs(self, plate: int, slot: Optional[int] = None, *,
-        fields: Optional[Iterable[str]] = None, data_origin: Optional[str] = None,
-        signals: Optional[Iterable[str]] = None) -> Optional[list[str]]:
-        issues: list[tuple[str, list[str]]] = []
-        slot_arg = f", {slot}" if slot is not None else ""
+    def _validate_fields(self, fields: Optional[Iterable[str]]) -> Optional[list[str]]:
+        """Check requested columns against the schema. Local only, no database roundtrip."""
+        if fields is None:
+            return None
+        fields = list(fields)
+        if not fields:
+            raise InvalidColumnError(
+                "An empty column list is not valid; use fields=None to select all columns.")
+        unknown = [c for c in fields if c not in self._valid_cols]
+        if unknown:
+            raise QueryValidationError([(f"Unknown column(s): {unknown}",
+                                         ["Use provider.schema() to see valid columns"])])
+        return fields
 
-        validated_fields: Optional[list[str]] = None
-        if fields is not None:
-            fields = list(fields)
-            if not fields:
-                raise InvalidColumnError(
-                    "An empty column list is not valid; use fields=None to select all columns.")
-            unknown = [c for c in fields if c not in self._valid_cols]
-            if unknown:
-                issues.append((f"Unknown column(s): {unknown}",
-                               ["Use provider.schema() to see valid columns"]))
-            else:
-                validated_fields = fields
-                
-        data_origin_valid = True
+    # ----------------------------
+    # Filter specs and empty-result diagnosis
+    # ----------------------------
+
+    def _filter_specs(self, plate: int, slot: Optional[int] = None, *,
+        data_origin: Optional[str] = None, signals: Optional[Iterable[str]] = None,
+        wcs_min: Optional[float] = None, wcs_max: Optional[float] = None,
+        extra: Optional[list[tuple]] = None) -> list[tuple]:
+        specs: list[tuple] = [(f"Platte={plate!r}", "Platte", "Platte = ?", [plate])]
+
+        if slot is not None:
+            specs.append((f"Nut={slot!r}", "Nut", "Nut = ?", [slot]))
+
         if data_origin:
-            valid_origins = self.list_data_origins(plate, slot)
-            if data_origin not in valid_origins:
-                data_origin_valid = False
-                issues.append((f"No rows matched data_origin={data_origin!r}",
-                               [f"see provider.data_origin({plate}{slot_arg})"]))
+            specs.append((f"DataOrigin={data_origin!r}", "DataOrigin", "DataOrigin = ?", [data_origin]))
 
         if signals:
             signals = list(signals)
-            origin_for_signals = data_origin if data_origin_valid else None
-            valid_signals = set(self.list_signals(plate, slot, data_origin=origin_for_signals))
-            missing = [s for s in signals if s not in valid_signals]
-            if missing:
-                issues.append((f"No rows matched signals={missing!r}",
-                               [f"see provider.signals({plate}{slot_arg})"]))
+            placeholders = ", ".join(["?"] * len(signals))
+            specs.append((f"Signal in {signals!r}", "Signal", f"Signal IN ({placeholders})", signals))
 
-        if issues:
-            raise QueryValidationError(issues)
+        # range filters: listing distinct values would not help, so column is None
+        if wcs_min is not None:
+            specs.append((f"WCS_Y_mm >= {wcs_min}", None, "WCS_Y_mm >= ?", [wcs_min]))
 
-        return validated_fields
+        if wcs_max is not None:
+            specs.append((f"WCS_Y_mm <= {wcs_max}", None, "WCS_Y_mm <= ?", [wcs_max]))
+
+        if extra:
+            specs.extend(extra)
+
+        return specs
+
+    @staticmethod
+    def _where_sql(specs: list[tuple], skip: Optional[int] = None) -> tuple[str, list]:
+        """Join filter specs into a WHERE body, optionally leaving one out."""
+        parts: list[str] = []
+        params: list = []
+        for index, (_, _, sql, spec_params) in enumerate(specs):
+            if index == skip:
+                continue
+            parts.append(sql)
+            params.extend(spec_params)
+        return (" AND ".join(parts) if parts else "TRUE"), params
+
+    def _suggest_values(self, specs: list[tuple], index: int, limit: int = 20) -> list:
+        """Values available for one filter's column once the other filters are applied."""
+        column = specs[index][1]
+        if column is None:
+            return []
+        where_sql, params = self._where_sql(specs, skip=index)
+        query = f"""
+            SELECT DISTINCT {column}
+            FROM {self.table_name}
+            WHERE {where_sql}
+            AND {column} IS NOT NULL
+            LIMIT {int(limit)}
+        """
+        return [row[0] for row in self.con.execute(query, params).fetchall()]
+
+    def _diagnose_empty(self, specs: list[tuple]) -> list[tuple[str, list[str]]]:
+        """
+        Explain an empty result by leave-one-out attribution.
+        """
+        described = ", ".join(label for label, _, _, _ in specs)
+        if not specs:
+            return [("The query returned no rows.", [])]
+
+        # If the filters together do match rows, the emptiness came from something downstream
+        where_sql, where_params = self._where_sql(specs)
+        matched = self.con.execute(
+            f"SELECT COUNT(*) FROM {self.table_name} WHERE {where_sql}", where_params).fetchone()[0]
+        if matched:
+            return [(f"No rows in the result for: {described}",
+                     [f"The filters match {matched:,} rows, so the query returned nothing "
+                      "after grouping/aggregation rather than because of a filter.",
+                      "The signals this query aggregates are probably absent from that selection."])]
+
+        selects: list[str] = []
+        params: list = []
+        for index in range(len(specs)):
+            where_sql, where_params = self._where_sql(specs, skip=index)
+            selects.append(f"bool_or({where_sql}) AS c{index}")
+            params.extend(where_params)
+
+        query = f"SELECT {', '.join(selects)} FROM {self.table_name}"
+        matches = self.con.execute(query, params).fetchone()
+
+        culprits = [index for index, matched in enumerate(matches) if matched]
+
+        # Removing any single filter still returns nothing: not a filter mistake.
+        if not culprits:
+            return [(f"No rows matched: {described}",
+                     ["Removing any single filter still returns nothing, so this selection "
+                      "is genuinely empty rather than mis-filtered.",
+                      "Use provider.plate_slots() to check the plate and slot exist at all."])]
+
+        hints: list[str] = []
+        for index in culprits:
+            label, column = specs[index][0], specs[index][1]
+            values = self._suggest_values(specs, index)
+            if values:
+                hints.append(f"Available {column}: {', '.join(str(v) for v in values)}")
+            else:
+                # range filters have no values to list, so just name the culprit
+                hints.append(f"Dropping {label} brings rows back.")
+
+        if len(culprits) > 1:
+            hints.append("Each of these filters matches on its own, but they never co-occur.")
+
+        return [(f"No rows matched: {described}", hints)]
 
     
     # ----------------------------
@@ -257,53 +342,33 @@ class DuckDBLoader:
         fields: Optional[Iterable[str]] = None, data_origin: Optional[str] = None,
         signals: Optional[Iterable[str]] = None, wcs_min: Optional[float] = None, 
         wcs_max: Optional[float] = None, order_by_time: bool = True, limit: Optional[int] = None) -> pd.DataFrame:
-        
-        self._ensure_plate_exists(plate)
-        if slot is not None:
-            self._ensure_plate_slot_exists(plate, slot)
 
-        validated_fields = self._validate_inputs(
-            plate, slot, fields=fields, data_origin=data_origin, signals=signals)
+        validated_fields = self._validate_fields(fields)
         select_clause = "*" if validated_fields is None else ", ".join(validated_fields)
+
+        specs = self._filter_specs(plate, slot, data_origin=data_origin, signals=signals,
+                                   wcs_min=wcs_min, wcs_max=wcs_max)
+        where_sql, params = self._where_sql(specs)
 
         query = f"""
             SELECT {select_clause}
             FROM {self.table_name}
-            WHERE Platte = ?
+            WHERE {where_sql}
         """
-        params: list = [plate]
 
-        if slot is not None:
-            query += " AND Nut = ?"
-            params.append(slot)
-        
-        if data_origin:
-            query += " AND DataOrigin = ?"
-            params.append(data_origin)
-            
-        if signals:
-            signals = list(signals)
-            placeholders = ", ".join(["?"] * len(signals))  
-            query += f" AND Signal IN ({placeholders})"
-            params.extend(signals)
-            
-        if wcs_min is not None:
-            query += " AND WCS_Y_mm >= ?"
-            params.append(wcs_min)
-            
-        if wcs_max is not None:
-            query += " AND WCS_Y_mm <= ?"
-            params.append(wcs_max)
-        
         if order_by_time and ("Time" in self._valid_cols) and (validated_fields is None or "Time" in validated_fields):
             query += " ORDER BY Time"
-            
+
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)
-        
+
         #transform the response into Data Frame
         df = self.query_df(query, params)
+
+        # nothing came back: explain which filter is responsible instead of returning a bare empty frame
+        if df.empty:
+            raise QueryValidationError(self._diagnose_empty(specs))
 
         if "Time" in df.columns:
             df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
@@ -329,7 +394,17 @@ class DuckDBLoader:
           - Werkzeug (signal actToolIdent[u1,1], Value_String)
         """
 
-        self._ensure_plate_exists(plate)
+        metadata_signals = ["R319", "R321", "R330", "actToolRadius[u1]", "actToolIdent[u1,1]"]
+        placeholders = ", ".join(["?"] * len(metadata_signals))
+
+        # The signal list and "Nut IS NOT NULL" are structural, not user filters, but they
+        # belong in the specs so the diagnosis reports honest numbers if nothing comes back.
+        specs = self._filter_specs(plate, data_origin=data_origin, extra=[
+            ("slots present", None, "Nut IS NOT NULL", []),
+            (f"metadata signals {metadata_signals!r}", None,
+             f"Signal IN ({placeholders})", metadata_signals),
+        ])
+        where_sql, params = self._where_sql(specs)
 
         # NOTE: Use deterministic aggregates (MIN/MAX) to keep stable output.
         # The raw table is long-form (Signal/Value[/Value_String]).
@@ -342,24 +417,15 @@ class DuckDBLoader:
                 MIN(CASE WHEN Signal = 'R330' THEN Value END) AS Drehzahl,
                 MIN(CASE WHEN Signal = 'actToolIdent[u1,1]' THEN Value_String END) AS Werkzeug
             FROM {self.table_name}
-            WHERE Platte = ?
-              AND Nut IS NOT NULL
-              AND Signal IN (
-                'R319',
-                'R321',
-                'R330',
-                'actToolRadius[u1]',
-                'actToolIdent[u1,1]'
-              )
+            WHERE {where_sql}
+            GROUP BY Nut
+            ORDER BY Nut
         """
-        params: list = [plate]
 
-        if data_origin:
-            query += " AND DataOrigin = ?"
-            params.append(data_origin)
-
-        query += " GROUP BY Nut ORDER BY Nut"
-        return self.query_df(query, params)
+        df = self.query_df(query, params)
+        if df.empty:
+            raise QueryValidationError(self._diagnose_empty(specs))
+        return df
 
     def slot_chatter_cases_summary(self, plate: int, *, data_origin: Optional[str] = None) -> pd.DataFrame:
         """Return chatter boundary rows per slot (long-form).
@@ -371,7 +437,8 @@ class DuckDBLoader:
         Columns: Nut, Chatter, Y_max
         """
 
-        self._ensure_plate_exists(plate)
+        specs = self._filter_specs(plate, data_origin=data_origin)
+        where_sql, params = self._where_sql(specs)
 
         query = f"""
             WITH SlotAgg AS (
@@ -381,16 +448,10 @@ class DuckDBLoader:
                     MAX(CASE WHEN Signal = 'R310' AND Value = 0 THEN WCS_Y_mm END) AS y_max_no_chatter,
                     MAX(CASE WHEN Signal = 'R310' AND Value = 1 THEN 1 ELSE 0 END) AS has_chatter
                 FROM {self.table_name}
-                WHERE Platte = ?
+                WHERE {where_sql}
                   AND Nut IS NOT NULL
                   AND WCS_Y_mm IS NOT NULL
             """
-        params: list = [plate]
-
-        if data_origin:
-            query += " AND DataOrigin = ?"
-            params.append(data_origin)
-
         query += """
                 GROUP BY Nut
             )
@@ -413,7 +474,10 @@ class DuckDBLoader:
             ORDER BY Nut, Chatter
         """
 
-        return self.query_df(query, params)
+        df = self.query_df(query, params)
+        if df.empty:
+            raise QueryValidationError(self._diagnose_empty(specs))
+        return df
     
     def get_axiswise_plot_df(
         self,
@@ -432,10 +496,6 @@ class DuckDBLoader:
 
         Returns only columns needed by create_axiswise_plots2 + optional hover fields.
         """
-        self._ensure_plate_exists(plate)
-        if slot is not None:
-            self._ensure_plate_slot_exists(plate, slot)
-        self._validate_inputs(plate, slot, data_origin=data_origin, signals=signals)
 
         required_cols = [
             "Platte",
@@ -459,35 +519,17 @@ class DuckDBLoader:
             raise InvalidColumnError("No plot columns found in schema.")
         select_clause = ", ".join(fields)
 
+        specs = self._filter_specs(
+            plate, slot, data_origin=data_origin, signals=signals,
+            wcs_min=wcs_min, wcs_max=wcs_max,
+            extra=[("Value IS NOT NULL", None, "Value IS NOT NULL", [])])
+        where_sql, params = self._where_sql(specs)
+
         query = f"""
             SELECT {select_clause}
             FROM {self.table_name}
-            WHERE Platte = ?
-              AND Value IS NOT NULL
+            WHERE {where_sql}
         """
-        params: list = [plate]
-
-        if slot is not None:
-            query += " AND Nut = ?"
-            params.append(slot)
-
-        if data_origin:
-            query += " AND DataOrigin = ?"
-            params.append(data_origin)
-
-        if signals:
-            signals = list(signals)
-            placeholders = ", ".join(["?"] * len(signals))
-            query += f" AND Signal IN ({placeholders})"
-            params.extend(signals)
-
-        if wcs_min is not None:
-            query += " AND WCS_Y_mm >= ?"
-            params.append(wcs_min)
-
-        if wcs_max is not None:
-            query += " AND WCS_Y_mm <= ?"
-            params.append(wcs_max)
 
         if order_by in self._valid_cols:
             query += f" ORDER BY {order_by}"
@@ -499,6 +541,10 @@ class DuckDBLoader:
             params.append(limit)
 
         df = self.query_df(query, params)
+
+        # nothing came back: explain which filter is responsible instead of returning a bare empty frame
+        if df.empty:
+            raise QueryValidationError(self._diagnose_empty(specs))
 
         if "Time" in df.columns:
             df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
