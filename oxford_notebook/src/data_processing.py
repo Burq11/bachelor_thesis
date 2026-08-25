@@ -8,7 +8,6 @@ import plotly.graph_objects as go
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
-## data_processing refactored for Database access
 
 # NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def extract_unique_signal_values(df, origin="LF_Data"):
@@ -83,7 +82,7 @@ def summarize_chatter_cases_sql(plate_number: str, *, data_origin: str | None = 
     ]]
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# # NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
 def analyze_platte(plate_number: str, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
     """
     SQL-first implementation: produce per-slot summaries for a plate using
@@ -753,62 +752,4 @@ def get_min_max_amplitudes_sql_from_db(
 
     true_min = result[0] if result[0] is not None else 0.0
     true_max = result[1] if result[1] is not None else 0.0
-    return true_min, true_max
-
-# NOTE: currently unused — no callers found. The DB variant get_min_max_amplitudes_sql_from_db
-# is the one actually used. Kept pending review.
-def get_min_max_amplitudes_sql(df_heatmap, platte):
-    """
-    Ermittelt die minimalen und maximalen Schwingungsamplituden für die Bins
-    mit dem global niedrigsten und höchsten RMS-Wert direkt aus der DuckDB.
-    """
-    if df_heatmap.empty:
-        return 0.0, 0.0
-
-    table = provider.table()
-
-    # Finde die Bins mit min/max RMS
-    idx_min_rms = df_heatmap['RMS_raw'].idxmin()
-    idx_max_rms = df_heatmap['RMS_raw'].idxmax()
-
-    bin_min = df_heatmap.loc[idx_min_rms]
-    bin_max = df_heatmap.loc[idx_max_rms]
-
-    # Extrahiere die Werte für die SQL-Abfrage (Nut is DOUBLE in DB)
-    slot_min = float(bin_min['Nut'])
-    slot_max = float(bin_max['Nut'])
-    y_min_min = float(bin_min['Y_min'])
-    y_max_min = float(bin_min['Y_max'])
-    y_min_max = float(bin_max['Y_min'])
-    y_max_max = float(bin_max['Y_max'])
-
-    # Keep original semantics from old widget code:
-    # - stable bin -> MIN(Value)
-    # - chatter bin -> MAX(Value)
-    query = f"""
-    SELECT
-        MIN(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS min_amplitude,
-        MAX(CASE WHEN Nut = ? AND WCS_Y_mm BETWEEN ? AND ? THEN Value ELSE NULL END) AS max_amplitude
-    FROM {table}
-    WHERE Platte = ?
-      AND Axis = 'X'
-      AND DataOrigin = 'Oscilloscope'
-      AND (
-            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?) OR
-            (Nut = ? AND WCS_Y_mm BETWEEN ? AND ?)
-          )
-    """
-
-    params = [
-        slot_min, y_min_min, y_max_min,
-        slot_max, y_min_max, y_max_max,
-        str(platte),
-        slot_min, y_min_min, y_max_min,
-        slot_max, y_min_max, y_max_max,
-    ]
-    result = provider.query_row(query, params)
-    
-    true_min = result[0] if result[0] is not None else 0.0
-    true_max = result[1] if result[1] is not None else 0.0
-    
     return true_min, true_max
