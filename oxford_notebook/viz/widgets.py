@@ -359,7 +359,7 @@ def show_heatmap_widget(heatmap_state=None):
                     platte,
                     bin_size_mm=bin_size_mm,
                     target_signal="X",
-                    target_origin="Oscilloscope",
+                    target_origin="ET200_Data",
                 )
 
                 # Summary and plot (DuckDB-first; avoids per-slot raw DataFrame loads)
@@ -497,7 +497,7 @@ def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
             if isinstance(plot_sources, dict):
                 print("Generating plots from targeted query DataFrames...")
                 try:
-                    external_df = _pick_frame(plot_sources, "Oscilloscope", "external")
+                    external_df = _pick_frame(plot_sources, "ET200_Data", "ET200", "external")
                     hf_df = _pick_frame(plot_sources, "HF_Data", "hf")
                     lf_df = _pick_frame(plot_sources, "LF_Data", "lf")
 
@@ -570,7 +570,7 @@ def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
                     # External Sensor Values
                     section_widgets.extend(_display_plot_section(
                         "External Sensor Values",
-                        df[df['DataOrigin'] == 'Oscilloscope'] if 'DataOrigin' in df.columns else df,
+                        df[df['DataOrigin'] == 'ET200_Data'] if 'DataOrigin' in df.columns else df,
                         dict(
                             color_column='Signal',
                             add_vlines=True,

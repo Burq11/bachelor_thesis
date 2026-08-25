@@ -1,4 +1,5 @@
 import itertools
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -39,7 +40,7 @@ def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white
     time_column : str
         Der Name der Spalte, die die Zeitangaben enthält (z.B. 'Duration_Seconds').
     gcode_column : str
-        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'HFBlockEvent_GCode').
+        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'GCode_Label').
     color1 : str, optional
         Die erste Farbe für die Füllung der Rechtecke (default ist "white").
     color2 : str or None, optional
@@ -53,7 +54,7 @@ def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white
     Examples
     --------
     >>> fig = px.line(df, x='Duration_Seconds', y='Value', color='Signal')
-    >>> add_gcode_vrects(fig, df_GCode, df, time_column='Duration_Seconds', gcode_column='HFBlockEvent_GCode', color1="green", color2="blue")
+    >>> add_gcode_vrects(fig, df_GCode, df, time_column='Duration_Seconds', gcode_column='GCode_Label', color1="green", color2="blue")
     >>> fig.show()
     """
 
@@ -95,7 +96,7 @@ def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
     time_column : str
         Der Name der Spalte, die die Zeitangaben enthält (z.B. 'Duration_Seconds').
     gcode_column : str
-        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'HFBlockEvent_GCode').
+        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'GCode_Label').
     line_color : str, optional
         Die Farbe der vertikalen Linien (default ist "grey").
     
@@ -195,11 +196,11 @@ def create_plot_with_gcode_annotations(df,
 
     if hoverdict is None:
         hoverdict = {
-            'Unit': True, 
-            'Description': True, 
-            'Groupname': True, 
-            'HFBlockEvent_GCode': True, 
-            'HFProbeCounter': True
+            'Unit': True,
+            'Signal_Label': True,
+            'Groupname': True,
+            'GCode_Label': True,
+            'Cycle': True
         }
 
     df_filtered = df.loc[df[filter_column] == filter_value].copy()
@@ -250,11 +251,11 @@ def create_plot_with_gcode_annotations(df,
         )
 
         if add_vrects:
-            add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='HFBlockEvent_GCode', 
+            add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='GCode_Label',
                              color1=vrect_color1, color2=vrect_color2)
 
         if add_vlines:
-            add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='HFBlockEvent_GCode')
+            add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='GCode_Label')
 
         fig.update_traces(opacity=trace_opacity)
 #         figures.append(fig)
@@ -580,7 +581,7 @@ def create_axiswise_plots2(
     trace_opacity=0.6,
     add_vrects=False,
     add_vlines=False,
-    gcode_column='HFBlockEvent_GCode',
+    gcode_column='GCode_Label',
     gcode_time_column='Time',
     vrect_color1="white",
     vrect_color2=None
@@ -599,7 +600,17 @@ def create_axiswise_plots2(
     # Assume the incoming DataFrame is already filtered by `DataOrigin` upstream.
     # Work on a copy to avoid mutating the caller's DataFrame.
     df_filtered = df.copy()
-    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
+
+    # Guard: an empty DataFrame carries no columns, so every column access below
+    # would raise. Upstream (provider.axiswise_plot_df) already explains *why* it
+    # is empty - here we just return no figures instead of crashing.
+    if df_filtered.empty:
+        warnings.warn(
+            "create_axiswise_plots2: empty Data Frame, can't generate a plot.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return {}
 
     # Guard: required columns must exist in the provided (pre-filtered) DataFrame.
     required_cols = [signal_column, x_column, y_column, axis_column]
@@ -607,13 +618,15 @@ def create_axiswise_plots2(
     if missing:
         raise ValueError(f"create_axiswise_plots2: missing required columns in df (expected): {missing}")
 
+    df_filtered[axis_column] = df_filtered[axis_column].fillna("not axis specific")
+
     if hoverdict is None:
         hoverdict = {
             'Unit': True,
-            'Description': True,
+            'Signal_Label': True,
             'Groupname': True,
-            'HFBlockEvent_GCode': True,
-            'HFProbeCounter': True
+            'GCode_Label': True,
+            'Cycle': True
         }
 
     df_filtered[signal_column] = df_filtered[signal_column].astype(str)
