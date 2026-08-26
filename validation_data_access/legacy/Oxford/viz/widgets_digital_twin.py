@@ -161,9 +161,9 @@ def show_plate_widget(processed_path, plate_state=None):
     plate_state : dict, optional
         Optionaler Zustand, in dem platte, df_summary und fig gespeichert werden.
     """
-    from src.data_processing import summarize_chatter_cases, analyze_platte
-    from viz.visualizer import plot_digital_twin_segmented
-    from viz.widgets_digital_twin import show_plattenauswahl_widget
+    from validation_data_access.legacy.Oxford.src.data_processing import summarize_chatter_cases, analyze_platte
+    from validation_data_access.legacy.Oxford.viz.visualizer import plot_digital_twin_segmented
+    from validation_data_access.legacy.Oxford.viz.widgets_digital_twin import show_plattenauswahl_widget
 
     show_plattenauswahl_widget(
         processed_path=processed_path,
@@ -352,8 +352,8 @@ def show_heatmap_widget(processed_path, heatmap_state=None):
             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
     
             try:
-                from src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
-                from viz.visualizer import plot_digital_twin_heatmap_gradient
+                from validation_data_access.legacy.Oxford.src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
+                from validation_data_access.legacy.Oxford.viz.visualizer import plot_digital_twin_heatmap_gradient
     
                 parquet_files = sorted(processed_path.glob(f"Platte_{platte}_*Nut_*.parquet"))
                 if not parquet_files:

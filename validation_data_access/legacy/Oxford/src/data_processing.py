@@ -484,7 +484,7 @@ def analyze_platte_heatmap(platte_nummer, processed_path, summarize_fn, plot_fn)
     
     # Get slot-position summary if possible
     try:
-        from src.data_processing import summarize_chatter_cases, analyze_platte
+        from validation_data_access.legacy.Oxford.src.data_processing import summarize_chatter_cases, analyze_platte
         df_summary, _ = analyze_platte(platte_nummer, processed_path, summarize_chatter_cases, lambda x: None)
     except Exception as e:
         print(f"Could not compute df_summary: {e}")

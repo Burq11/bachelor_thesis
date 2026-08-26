@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from src.data_processing import filter_unique_gcodes
+from validation_data_access.legacy.Oxford.src.data_processing import filter_unique_gcodes
 
 def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white", color2=None):
     """
@@ -348,7 +348,7 @@ def create_plot_with_gcode_annotations(df,
 #         display(out)
 
 import plotly.graph_objects as go
-from viz import IWF_template
+from validation_data_access.legacy.Oxford.viz import IWF_template
 
 
 def plot_digital_twin_segmented(df_summary, nut_width=5.0):
@@ -793,7 +793,7 @@ def plot_digital_twin_heatmap_gradient(
 
     import numpy as np
     import plotly.graph_objects as go
-    from viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
+    from validation_data_access.legacy.Oxford.viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
 
     # Empty fallbacks
     if df_heatmap.empty:
@@ -1177,7 +1177,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 from scipy.cluster.hierarchy import linkage, leaves_list
-from viz.IWF_template import register_templates, IWF_Red_Fade
+from validation_data_access.legacy.Oxford.viz.IWF_template import register_templates, IWF_Red_Fade
 
 
 def plot_correlation_blocks_IWF(df_wide):
@@ -1256,7 +1256,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.colors import sample_colorscale
-from viz.IWF_template import (
+from validation_data_access.legacy.Oxford.viz.IWF_template import (
     register_templates,
     PTZ_colors,
     FraunhoferColors,
