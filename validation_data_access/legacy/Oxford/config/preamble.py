@@ -21,7 +21,7 @@ if str(project_root) not in sys.path:
 # === Plotly-Konfiguration ===
 pio.templates.default = "plotly_dark"
 
-from viz import IWF_template
+from validation_data_access.legacy.Oxford.viz import IWF_template
 IWF_template.register_templates()
 
 # === Anzeigeoptionen & Warnungen ===
