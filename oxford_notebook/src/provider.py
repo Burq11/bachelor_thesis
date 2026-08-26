@@ -180,7 +180,7 @@ def plates():
     )
 
 def slots(plate: int) -> list[int]:
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.list_slots_for_plate(plate),
         empty_return=[],
@@ -198,7 +198,7 @@ def plate_slots() -> list[tuple[int, int]]:
     )
     
 def signals(plate: int, slot: int | None = None, data_origin: str | None = None) -> list[str]:
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.list_signals(plate, slot, data_origin=data_origin),
         empty_return=[],
@@ -206,7 +206,7 @@ def signals(plate: int, slot: int | None = None, data_origin: str | None = None)
     )
 
 def data_origin(plate: int, slot: int | None = None) -> list[str]:
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.list_data_origins(plate, slot),
         empty_return=[],
@@ -214,7 +214,7 @@ def data_origin(plate: int, slot: int | None = None) -> list[str]:
     )
 
 def df(plate: int, slot: int | None = None, **kwargs) -> pd.DataFrame:
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.get_data_df(plate, slot, **kwargs),
         empty_return=pd.DataFrame(),
@@ -266,7 +266,7 @@ def query_row(sql: str, params=()):
 
 def slot_metadata_summary(plate: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """One row per slot with overlay metadata needed by the heatmap plots."""
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.slot_metadata_summary(plate, data_origin=data_origin),
         empty_return=pd.DataFrame(),
@@ -276,7 +276,7 @@ def slot_metadata_summary(plate: int, *, data_origin: str | None = None) -> pd.D
 
 def slot_chatter_cases_summary(plate: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """Long-form chatter boundary summary per slot (no raw per-slot loads)."""
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.slot_chatter_cases_summary(plate, data_origin=data_origin),
         empty_return=pd.DataFrame(),
@@ -313,7 +313,7 @@ def axiswise_plot_df(
     order_by: str = "Time",
     limit: int | None = None,
 ) -> pd.DataFrame:
-    plate = int(plate)
+    plate = str(plate)
     return _client_call(
         lambda: loader_global.get_axiswise_plot_df(
             plate,
