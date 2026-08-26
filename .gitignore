@@ -28,7 +28,8 @@ Thumbs.db
 */results/
 *.log
 !db_folder/.gitkeep
-data/2025-05_Oxford_und_Rebecka/
+*.parquet
+**/data/2025-05_Oxford_und_Rebecka/
 
 # ---- tests outputs ----
 tests/tests_equiv
