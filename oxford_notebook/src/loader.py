@@ -241,6 +241,18 @@ class DuckDBLoader:
     # ----------------------------
     # Place for your queries
     # ----------------------------
+        # Example:
+    #
+    # def my_query(self, arg1, arg2):
+    #     self._ensure_plate_exists(arg1)
+    #     query = f"""
+    #         SELECT ... FROM {self.table_name}
+    #         WHERE Platte = ? AND Nut = ?
+    #     """
+    #     params = [arg1, arg2]
+    #     # (Optional) Add more filters/logic
+    #     df = self.query_df(query, params)
+    #     return df
 
     def slot_metadata_summary(self, plate: int, *, data_origin: Optional[str] = None) -> pd.DataFrame:
         """Return one metadata row per slot for a plate.
@@ -372,6 +384,7 @@ class DuckDBLoader:
             "Time",
             "Duration_Seconds",
             "WCS_Y_mm",
+            "WCS_Source",
             "Axis",
             "Signal",
             "Value",
@@ -432,14 +445,15 @@ class DuckDBLoader:
 
         df = self.query_df(query, params)
 
-        # nothing came back: explain which filter is responsible instead of returning a bare empty frame
+        # Fail loudly instead of handing back a frame that cannot be plotted: no rows at all, or rows
+        # without a usable position. Keyed on WCS_Y_mm only, since LF_Data has position but no Axis
+        # and must still pass. Revisit once the real data arrives - these assumptions may not hold.
         if df.empty:
             raise QueryValidationError(self._diagnose_empty(specs))
 
-        # rows came back but none carry a position: unplottable, so fail loudly instead
-        # of handing callers a frame that renders as empty axes. Keys on WCS_Y_mm only --
-        # LF_Data has position but no Axis and must still pass.
         if "WCS_Y_mm" in df.columns and df["WCS_Y_mm"].isna().all():
+            raise NoSignalBearingChannelsError(plate, slot, data_origin)
+        if "WCS_Source" in df.columns and (df["WCS_Source"] == "placeholder").all():
             raise NoSignalBearingChannelsError(plate, slot, data_origin)
 
         if "Time" in df.columns:
@@ -447,18 +461,7 @@ class DuckDBLoader:
 
         return df
 
-    # Example:
-    #
-    # def my_query(self, arg1, arg2):
-    #     self._ensure_plate_exists(arg1)
-    #     query = f"""
-    #         SELECT ... FROM {self.table_name}
-    #         WHERE Platte = ? AND Nut = ?
-    #     """
-    #     params = [arg1, arg2]
-    #     # (Optional) Add more filters/logic
-    #     df = self.query_df(query, params)
-    #     return df
+
 
     # ----------------------------
     # Internals: input checks and empty-result diagnosis
