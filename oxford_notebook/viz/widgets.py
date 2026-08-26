@@ -343,7 +343,10 @@ def show_heatmap_widget(heatmap_state=None):
                 set_progress(2, "loaded heatmap data")
 
                 if df_heatmap.empty:
-                    print(f"Data Frame empty - No valid heatmap data for Plate {platte}")
+                    print(
+                        f"No heatmap data for Plate {platte}: This is a known data gap (no connected accelerometer"
+                        f"in this recording)"
+                    )
                     return
 
                 # Global normalization (prefer SQL result; fallback to Python)
