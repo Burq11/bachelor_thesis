@@ -1,3 +1,11 @@
+"""Shared notebook preamble: imports, paths and template registration.
+
+Provenance: unchanged from Martin Heper's (M.Sc., IWF, TU Berlin) Parquet-based analysis
+system, preserved as received at validation_data_access/legacy/Oxford/config/preamble.py,
+apart from six unused imports removed in this thesis.
+"""
+
+
 import sys
 import warnings
 from pathlib import Path

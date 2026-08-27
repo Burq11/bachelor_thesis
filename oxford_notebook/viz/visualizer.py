@@ -1,3 +1,15 @@
+"""Plotting layer for the digital-twin notebooks.
+
+Derived from Martin Heper's (M.Sc., IWF, TU Berlin) Parquet-based analysis system,
+preserved as received at validation_data_access/legacy/Oxford/viz/visualizer.py. Every
+function below carries a provenance note recording whether it is unchanged, adapted, or
+new in this thesis.
+
+The legacy `plot_digital_twin_segmented` was dropped; `plot_digital_twin_heatmap_gradient`
+supersedes it.
+"""
+
+
 import itertools
 import warnings
 
@@ -21,6 +33,7 @@ from viz.IWF_template import (
     IWF_Black_fade,
 )
 
+# Provenance: unchanged from the legacy system.
 def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white", color2=None):
     """
     Fügt vertikale Rechtecke (vrects) zu einem Plotly-Diagramm hinzu, basierend auf den ersten Vorkommen
@@ -79,6 +92,7 @@ def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white
         # Rechteck hinzufügen
         fig.add_vrect(x0=x_val, x1=x1_val, annotation_text=an_val, fillcolor=fill_color, opacity=0.25, line_width=1, annotation_position="top left")
         
+# Provenance: unchanged from the legacy system.
 def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
     """
     Fügt vertikale Linien (vlines) zu einem Plotly-Diagramm hinzu, basierend auf den ersten Vorkommen
@@ -122,8 +136,8 @@ def add_gcode_vlines(fig, df, time_column, gcode_column, line_color="grey"):
         fig.add_vline(x=x_val, annotation_text=an_val, line_color=line_color)
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase (only its own docstring
-# examples reference it). Kept pending review.
+
+# Provenance: unchanged from the legacy system.
 def create_plot_with_gcode_annotations(df,
                                        filter_column='DataOrigin', 
                                        filter_value='HF_Data', 
@@ -260,103 +274,8 @@ def create_plot_with_gcode_annotations(df,
         fig.update_traces(opacity=trace_opacity)
 #         figures.append(fig)
                 
-# #Am Ende: alle anzeigen
-#         r fig in figures:
-#           display(fig)
-#         import ipywidgets as widgets
-#         from IPython.display import display
-#         out = widgets.Output()
-#         with out:
-#             display(fig)
-#         display(out)
 
-## we are not using this anywhere
-# def plot_digital_twin_segmented(df_summary, nut_width=5.0):
-#     """
-#     Visualisiert eine Fräsplatte basierend auf zusammengefassten Nutdaten
-#     mit Chatter-Markierung (stabil/instabil) als digitale Zwilling-Grafik.
-
-#     Für jede Nut wird anhand des 'Chatter'-Labels und der Y_max-Werte ein
-#     rechteckiger Bereich gezeichnet:
-#     - Chatter = 0 → stabiler Bereich
-#     - Chatter = 1 → instabiler Bereich
-#     - beide → segmentiert in oberen/unteren Bereich
-
-#     Parameter
-#     ----------
-#     df_summary : pd.DataFrame
-#         Aggregierter DataFrame mit Spalten:
-#         ['Chatter', 'Y_max', 'Drehzahl', 'Werkzeugradius', 'X_Position_Nut', 'Nut_ID', ...]
-#     nut_width : float, optional
-#         Breite der Nuten für die Darstellung (nicht verwendet, x-Position wird aus Radius berechnet)
-
-#     Returns
-#     -------
-#     fig : go.Figure
-#         Interaktive Plotly-Grafik der Fräsplatte mit Chattersegmentierung.
-#     """
-#     fig = go.Figure()
-
-#     # Grundplatte
-#     fig.add_shape(type="rect", x0=0, x1=245, y0=0, y1=245,
-#                   fillcolor=IWF_template.FraunhoferColors[4], line=dict(color="black"))
-
-#     for nut_id in sorted(df_summary["Nut_ID"].unique()):
-#         gruppe = df_summary[df_summary["Nut_ID"] == nut_id].sort_values("Chatter")
-#         x_pos = gruppe["X_Position_Nut"].iloc[0]
-#         radius = gruppe["Werkzeugradius"].iloc[0]
-#         rpm = gruppe["Drehzahl"].iloc[0]
-#         x0 = x_pos - radius
-#         x1 = x_pos + radius
-
-#         if len(gruppe) == 2:
-#             y_split = gruppe["Y_max"].iloc[0]
-#             y_max = gruppe["Y_max"].iloc[1]
-#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_split,
-#                           fillcolor=IWF_template.FraunhoferColors[0], line=dict(color="black"), opacity=1)
-#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=y_split, y1=y_max,
-#                           fillcolor=IWF_template.iwfColors_without_white[3], line=dict(color="black"), opacity=1)
-#         else:
-#             y_max = gruppe["Y_max"].iloc[0]
-#             color = IWF_template.iwfColors_without_white[1] if gruppe["Chatter"].iloc[0] == 1 else IWF_template.FraunhoferColors[0]
-#             fig.add_shape(type="rect", x0=x0, x1=x1, y0=0, y1=y_max,
-#                           fillcolor=color, line=dict(color="black"), opacity=1)
-
-#         # Nutnummer (oben)
-#         fig.add_annotation(
-#             x=x_pos,
-#             y=0,
-#             text=f"N{int(nut_id)}",
-#             showarrow=False,
-#             font=dict(size=10, color='black'),
-#             textangle=0,
-#             yanchor='top'
-#         )
-
-#         # Drehzahl (unten)
-#         fig.add_annotation(
-#             x=x_pos,
-#             y=1,
-#             text=f"{int(rpm)} rpm",
-#             showarrow=False,
-#             font=dict(size=10, color='black'),
-#             textangle=-90,
-#             yanchor='bottom'
-#         )
-
-#     fig.update_layout(
-#         title="Digital Twin der Fräsplatte (Chatter-Visualisierung)",
-#         xaxis_title="X [mm]",
-#         yaxis_title="Y [mm]",
-#         xaxis=dict(range=[0, 250]),
-#         yaxis=dict(range=[-10, 270]),
-#         width=600,
-#         height=600,
-#         plot_bgcolor="white"
-#     )
-#     fig.update_yaxes(scaleanchor="x", scaleratio=1)
-#     return fig
-
+# Provenance: unchanged from the legacy system.
 def downsample_df(df, max_points: int = 10000):
     """
     Reduziert die Anzahl der Datenpunkte gleichmäßig über alle Zeilen hinweg.
@@ -381,6 +300,7 @@ def downsample_df(df, max_points: int = 10000):
     idx = np.linspace(0, len(df) - 1, max_points).astype(int)
     return df.iloc[idx]
 
+# Provenance: unchanged from the legacy system.
 def get_signal_to_color_map(df, signal_column, group_column, color_palette):
     """
     Erstellt ein Mapping von Signalen zu Farben auf Basis ihrer Gruppenzugehörigkeit.
@@ -417,6 +337,7 @@ def get_signal_to_color_map(df, signal_column, group_column, color_palette):
     )
     return signal_to_color
 
+# Provenance: unchanged from the legacy system.
 def normalize_column(df, column, groupby_col, method='zscore'):
     """
     Normalisiert eine numerische Spalte gruppenweise nach dem gewählten Verfahren.
@@ -450,8 +371,8 @@ def normalize_column(df, column, groupby_col, method='zscore'):
         raise ValueError(f"Unbekannte Normalisierungsmethode: {method}")
 
 
-# NOTE: currently unused — no callers found. The variant create_axiswise_plots2 is the one
-# actually used (widgets.py, notebooks). Kept pending review.
+
+# Provenance: unchanged from the legacy system.
 def create_axiswise_plots(
     df,
     axis_column='Axis',
@@ -563,6 +484,9 @@ def create_axiswise_plots(
 
     return figures
 
+# Provenance: adapted from the legacy system — the `filter_column` / `filter_value`
+# parameters were removed and `DataOrigin` filtering moved upstream, a
+# required-column guard was added, and it no longer mutates the caller's frame.
 def create_axiswise_plots2(
     df,
     axis_column='Axis',
@@ -701,6 +625,9 @@ def create_axiswise_plots2(
     return figures
     
 #########HEATMAP###############
+# Provenance: adapted from the legacy system — slot positions are taken from the
+# DB-provided `Nut_ID` -> `X_Position_Nut` mapping with fallbacks, and shapes,
+# traces and annotations are staged before being applied to the figure.
 def plot_digital_twin_heatmap_gradient(
     df_heatmap,
     df_summary=None,
@@ -1178,7 +1105,8 @@ def plot_digital_twin_heatmap_gradient(
     return fig
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+
+# Provenance: unchanged from the legacy system.
 def plot_correlation_blocks_IWF(df_wide):
     """
     Simple IWF-style correlation heatmap with signals grouped into blocks
@@ -1250,10 +1178,8 @@ def plot_correlation_blocks_IWF(df_wide):
 
     return fig, corr_ord
 
-#########PCA###############  CAN I DELETE THIS?
 
-# NOTE: currently unused — only called by plot_pca_biplot, which is itself unused.
-# Effectively dead unless that function is reintroduced. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def build_iwf_color_palette(n_colors=50):
     """
     Creates an extended color palette based solely on IWF's defined fades and brand colors.
@@ -1278,7 +1204,7 @@ def build_iwf_color_palette(n_colors=50):
     # Return the first n_colors unique tones
     return combined[:n_colors]
     
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def plot_pca_biplot(X_pca, loadings, explained_var, arrow_scale=5, nut_state=None):
 
     """
@@ -1385,7 +1311,7 @@ def plot_pca_biplot(X_pca, loadings, explained_var, arrow_scale=5, nut_state=Non
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
     return fig
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def plot_top5_per_pc(loadings):
     """
     Plot vertical bars of top 5 absolute loadings for PC1 and PC2.
