@@ -1,3 +1,17 @@
+"""ipywidgets front end for the digital-twin notebooks.
+
+Renamed from `viz/widgets_digital_twin.py` in Martin Heper's (M.Sc., IWF, TU Berlin)
+Parquet-based analysis system, preserved as received at
+validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py. Every function below
+carries a provenance note recording whether it is unchanged, adapted, or new in this
+thesis.
+
+The legacy `show_plattenauswahl_widget`, `show_nutauswahl_widget`, `show_plate_widget`
+and `show_plate_selector` were replaced by the two combined selection widgets below,
+which read through `src.provider` instead of scanning a processed-data directory.
+"""
+
+
 import builtins
 import time
 
@@ -23,6 +37,7 @@ from viz.visualizer import (
 _ACTIVE_HEATMAP_WIDGET = None
 
 
+# Provenance: new in this thesis.
 def _close_widget(widget):
     if widget is None:
         return
@@ -31,7 +46,8 @@ def _close_widget(widget):
     except Exception:
         pass
 
-# Widget for selecting plate and slot in one step. Assigns DataFrame to selected_df in global scope.
+# Provenance: new in this thesis. Replaces the legacy two-step
+# `show_plattenauswahl_widget` / `show_nutauswahl_widget` pair.
 def show_plate_slot_selection_widget(default_plate=None, state=None):
     plates = provider.plates()
     if not plates:
@@ -90,7 +106,10 @@ def show_plate_slot_selection_widget(default_plate=None, state=None):
     display(widgets.VBox([widgets.HBox([plate_dropdown, slot_dropdown, confirm_button]), output]))
     
 
-#########HEATMAP###############  IMPLEMENTATION BY OTHER STUDENTs
+#########HEATMAP###############  BASE IMPLEMENTATION BY OTHER STUDENTS
+# Provenance: adapted from the legacy system — the overlay and bin inputs now come
+# from `src.provider` and the SQL helpers instead of per-slot Parquet loads, and
+# staged progress reporting was added. The QW overlay drawing is unchanged.
 def show_heatmap_widget(heatmap_state=None):
     """
     Interactive widget for digital twin heatmap visualization with spatial color gradients.
@@ -461,6 +480,7 @@ def show_heatmap_widget(heatmap_state=None):
         print(f"Current settings: Plate {dropdown_platte.value}, Bin size {slider_bin.value} mm")
 
 # Utility Voila: Button to trigger plot generation for the selected DataFrame.
+# Provenance: new in this thesis.
 def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
     """
     Displays a button that generates plots for the selected DataFrame.
@@ -630,6 +650,7 @@ def show_generate_plots_button(get_df_func=None, get_plot_dfs_func=None):
     display(widgets.VBox([generate_button, output]))
     
 # Utilities, to keep the buttons matching across the Notebooks    
+# Provenance: new in this thesis.
 def style_button(button):
     button.style.button_color = '#990000'
     button.style.text_color = 'white'
@@ -639,6 +660,8 @@ def style_button(button):
 
 
 # Flexible widget for selecting plate, slot, and arbitrary filters (addtion)
+# Provenance: new in this thesis. Replaces the legacy `show_plate_widget` /
+# `show_plate_selector` pair and adds the per-signal filter rows.
 def show_plate_slot_filter_widget(default_plate=None, state=None):
     """
     Widget for selecting plate, slot, and adding arbitrary column filters.

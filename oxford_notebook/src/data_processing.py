@@ -1,3 +1,16 @@
+"""Data preparation and signal processing for the digital-twin notebooks.
+
+Derived from Martin Heper's (M.Sc., IWF, TU Berlin) Parquet-based analysis system,
+preserved as received at validation_data_access/legacy/Oxford/src/data_processing.py.
+Every function below carries a provenance note recording whether it is unchanged,
+adapted, or new in this thesis.
+
+The legacy `summarize_chatter_cases`, `prepare_equal_bins_heatmap`,
+`analyze_platte_heatmap` and `run_pca` were dropped here in favour of the SQL-first
+helpers, which query DuckDB through `src.provider` instead of loading per-slot frames.
+"""
+
+
 from src import provider
 from pathlib import Path
 import pandas as pd
@@ -10,7 +23,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def extract_unique_signal_values(df, origin="LF_Data"):
     """
     Extrahiert eine eindeutige Übersicht über Signal, Label, Value und Value_String
@@ -39,6 +52,8 @@ def extract_unique_signal_values(df, origin="LF_Data"):
 
 
 
+# Provenance: new in this thesis. Replaces the legacy per-slot
+# `summarize_chatter_cases` with a single DuckDB query.
 def summarize_chatter_cases_sql(plate_number: int, *, data_origin: str | None = None) -> pd.DataFrame:
     """DuckDB-first summary for the heatmap overlays (no per-slot raw loads).
 
@@ -83,7 +98,9 @@ def summarize_chatter_cases_sql(plate_number: int, *, data_origin: str | None = 
     ]]
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: adapted from the legacy system — the call shape is kept, but the
+# body was rewritten to resolve data through `src.provider` rather than a
+# `processed_path`, and the legacy `summarize_fn` is no longer used.
 def analyze_platte(plate_number: int, summarize_fn=None, plot_fn=None, *, df_kwargs: dict | None = None):
     """
     SQL-first implementation: produce per-slot summaries for a plate using
@@ -117,6 +134,7 @@ def analyze_platte(plate_number: int, summarize_fn=None, plot_fn=None, *, df_kwa
 
 
 
+# Provenance: unchanged from the legacy system.
 def filter_unique_gcodes(df, signal_column='Signal', gcode_column='GCode_Label', sort_column='Time'):
     """
     Filtert den DataFrame nach dem ersten Signal in der angegebenen Signal-Spalte, sortiert ihn optional nach einer 
@@ -175,8 +193,7 @@ def filter_unique_gcodes(df, signal_column='Signal', gcode_column='GCode_Label',
 
 
 
-# NOTE: currently unused — no callers found. (viz/visualizer.py defines its own local
-# downsample_dataframe, which is a different function.) Kept pending review.
+# Provenance: unchanged from the legacy system.
 def downsample_dataframe(df: pd.DataFrame, max_points: int = 10_000) -> pd.DataFrame:
     """
     Reduziert die Anzahl der Zeilen eines DataFrames auf maximal `max_points` durch gleichmäßiges Sampling.
@@ -203,8 +220,8 @@ def downsample_dataframe(df: pd.DataFrame, max_points: int = 10_000) -> pd.DataF
         idx = np.linspace(0, len(df) - 1, max_points).astype(int)
         return df.iloc[idx].reset_index(drop=True)
 
-# NOTE: currently unused — only called by butter_lowpass_filter_series, which is itself
-# unused. Effectively dead unless that function is reintroduced. Kept pending review.
+
+# Provenance: unchanged from the legacy system.
 def compute_sampling_rate(time: np.ndarray, method: str = "mean") -> int:
     """
     Berechnet die Samplingrate (Abtastfrequenz) eines Zeitarrays in Hz als ganze Zahl.
@@ -246,7 +263,7 @@ def compute_sampling_rate(time: np.ndarray, method: str = "mean") -> int:
 
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def butter_lowpass_filter_series(
     df: pd.DataFrame,
     signal_col: str,
@@ -305,6 +322,7 @@ def butter_lowpass_filter_series(
 
     return pd.Series(filtered, index=df.index, name=f"{signal_col}_gefiltert")
 
+# Provenance: unchanged from the legacy system.
 def filter_constant_HF_signals(df, signal_col="Signal", value_col="Value", origin_col="DataOrigin", hf_label="HF_Data"):
     """
     Entfernt HF-Signale, deren Werte über die Zeit konstant sind.
@@ -349,7 +367,8 @@ def filter_constant_HF_signals(df, signal_col="Signal", value_col="Value", origi
     df_filtered = pd.concat([df_other, df_hf_filtered], ignore_index=True).sort_values(by="Duration_Seconds")
     return df_filtered.reset_index(drop=True).copy()
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+
+# Provenance: unchanged from the legacy system.
 def count_value_combinations(df, columns, sort_by_count=True, na_rep='NaN'):
     """
     Zählt die Häufigkeit von Kombinationen bestimmter Spaltenwerte in einem DataFrame.
@@ -399,7 +418,7 @@ def count_value_combinations(df, columns, sort_by_count=True, na_rep='NaN'):
 
 ########### PCA ###############
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def prepare_df_wide_for_pca(
     df: pd.DataFrame,
     index_col: str = "Duration_Seconds",
@@ -496,7 +515,7 @@ def prepare_df_wide_for_pca(
     return df_wide
 
 
-# NOTE: currently unused — no callers found anywhere in the codebase. Kept pending review.
+# Provenance: unchanged from the legacy system.
 def reduce_redundant_signals(df, corr_threshold=0.9):
     """
     Removes redundant signals using absolute correlation + connected components.
@@ -565,6 +584,8 @@ def reduce_redundant_signals(df, corr_threshold=0.9):
 
     return df_reduced, corr_reduced, groups, kept, dropped
 
+# Provenance: new in this thesis. Replaces the legacy in-memory
+# `prepare_equal_bins_heatmap`, preserving its bin-edge semantics.
 def prepare_equal_bins_heatmap_sql(
     platte,
     bin_size_mm=10,
@@ -661,6 +682,8 @@ def prepare_equal_bins_heatmap_sql(
     return provider.query_df(query, params)
 
 
+# Provenance: new in this thesis. No legacy counterpart; the legacy code derived
+# the amplitude range per slot while loading the raw frames.
 def get_min_max_amplitudes_sql_from_db(
     platte,
     *,

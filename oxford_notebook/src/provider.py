@@ -1,3 +1,10 @@
+"""Query helpers that serve the notebooks their plates, slots and frames.
+
+Provenance: new in this thesis. There is no counterpart in the legacy system, which
+resolved plates and slots by walking a processed-data directory.
+"""
+
+
 from pathlib import Path
 from typing import Iterable
 from src.loader import DuckDBLoader, InvalidColumnError, DataNotFoundError, QueryValidationError, NoSignalBearingChannelsError

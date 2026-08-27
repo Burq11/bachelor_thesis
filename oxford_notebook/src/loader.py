@@ -1,3 +1,10 @@
+"""DuckDB connection and query layer.
+
+Provenance: new in this thesis. There is no counterpart in the legacy system, which read
+processed Parquet files from disk instead of querying a database.
+"""
+
+
 
 from __future__ import annotations
 from pathlib import Path

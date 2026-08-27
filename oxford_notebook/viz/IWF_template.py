@@ -1,3 +1,10 @@
+"""IWF / Fraunhofer plotly templates and colour palettes.
+
+Provenance: unchanged from Martin Heper's (M.Sc., IWF, TU Berlin) Parquet-based analysis
+system, preserved as received at validation_data_access/legacy/Oxford/viz/IWF_template.py.
+"""
+
+
 # Importieren der benötigten Plotly-Module
 import plotly.graph_objects as go
 import plotly.io as pio
