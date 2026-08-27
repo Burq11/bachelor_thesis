@@ -1,0 +1,218 @@
+Schema migration diff: legacy schema (branch validation-B) -> new pipeline schema (main)
+=========================================================================================
+
+Reproduce the underlying full diff with:
+
+    git diff validation-B main -- oxford_notebook/src oxford_notebook/viz \
+                                  oxford_notebook/config oxford_notebook/notebooks
+
+This file is a filtered EXCERPT of that diff. Kept are only changed lines whose change is
+caused by the schema itself:
+
+  * DataOrigin literal     'Oscilloscope'        -> 'ET200_Data'
+  * G-code column          HFBlockEvent_GCode    -> NcCode + NcComment, concatenated in SQL
+                                                    as GCode_Label
+  * probe counter          HFProbeCounter        -> Cycle
+  * signal label           Description           -> COALESCE(Label, Description, Signal)
+                                                    AS Signal_Label
+  * additional columns     WCS_Source, Label, IpoGC (no legacy counterpart)
+  * tool signal literal    actToolIdent[u1,1]    -> actToolIdent[u1]
+  * column types           Platte VARCHAR, Nut DOUBLE -> Platte INTEGER, Nut INTEGER
+                                                    (7x str(plate) -> int(plate))
+
+Excluded are changes that accompany the migration but are not schema changes: the
+NoSignalBearingChannelsError guard, the empty-DataFrame guard in create_axiswise_plots2,
+the NULL-NcCode guard in filter_unique_gcodes, provenance headers, dead-code comments and
+reformatting. Line counts per file are given below.
+
+The hunks are excerpts, so this file does not apply with `git apply`; the @@ headers give
+the position in the full diff.
+
+
+Schema-driven line counts
+-------------------------
+  oxford_notebook/notebooks/notebook_visuals.ipynb   +  4  -  4
+  oxford_notebook/notebooks/notebook_voila.ipynb     +  2  -  2
+  oxford_notebook/src/data_processing.py             + 16  - 15
+  oxford_notebook/src/loader.py                      + 25  -  5
+  oxford_notebook/src/provider.py                    +  7  -  7
+  oxford_notebook/viz/visualizer.py                  + 12  - 12
+  oxford_notebook/viz/widgets.py                     +  3  -  3
+  TOTAL                                              + 69  - 48
+
+--- a/oxford_notebook/notebooks/notebook_visuals.ipynb
++++ b/oxford_notebook/notebooks/notebook_visuals.ipynb
+@@ -63,7 +63,7 @@
+-    "df_plot_oscilloscope = provider.axiswise_plot_df(plate=22,slot=1,wcs_min=0,wcs_max=245, data_origin = \"Oscilloscope\")"
++    "df_plot_ET200 = provider.axiswise_plot_df(plate=40,slot=1,wcs_min=0,wcs_max=245, data_origin = \"ET200_Data\")"
+@@ -74,7 +74,7 @@
+-    "ext_figs = create_axiswise_plots2(df_plot_oscilloscope, x_column=\"WCS_Y_mm\", normalize_method=\"minmax\", add_vlines=True, max_display_points=20000)\n",
++    "ext_figs = create_axiswise_plots2(df_plot_ET200, x_column=\"WCS_Y_mm\", normalize_method=\"minmax\", add_vlines=True, max_display_points=20000)\n",
+@@ -95,7 +95,7 @@
+-    "df_plot_HF = provider.axiswise_plot_df(plate=22,slot=1,wcs_min=0,wcs_max=245, data_origin = \"HF_Data\")"
++    "df_plot_HF = provider.axiswise_plot_df(plate=40,slot=1,wcs_min=0,wcs_max=245, data_origin = \"HF_Data\")"
+@@ -140,7 +140,7 @@
+-    "df_plot_LF = provider.axiswise_plot_df(plate=22,slot=1,wcs_min=0,wcs_max=245, data_origin = \"LF_Data\")"
++    "df_plot_LF = provider.axiswise_plot_df(plate=40,slot=1,wcs_min=0,wcs_max=245, data_origin = \"LF_Data\")"
+
+--- a/oxford_notebook/notebooks/notebook_voila.ipynb
++++ b/oxford_notebook/notebooks/notebook_voila.ipynb
+@@ -99,12 +99,12 @@
+-    "        \"Oscilloscope\": provider.axiswise_plot_df(\n",
++    "        \"ET200_Data\": provider.axiswise_plot_df(\n",
+-    "            data_origin=\"Oscilloscope\",\n",
++    "            data_origin=\"ET200_Data\",\n",
+
+--- a/oxford_notebook/src/data_processing.py
++++ b/oxford_notebook/src/data_processing.py
+@@ -50,8 +66,8 @@
+-    meta = provider.slot_metadata_summary(str(plate_number), data_origin=data_origin)
+-    chatter = provider.slot_chatter_cases_summary(str(plate_number), data_origin=data_origin)
++    meta = provider.slot_metadata_summary(int(plate_number), data_origin=data_origin)
++    chatter = provider.slot_chatter_cases_summary(int(plate_number), data_origin=data_origin)
+@@ -68,7 +84,7 @@
+-    df["Platte"] = str(plate_number)
++    df["Platte"] = int(plate_number)
+@@ -101,7 +119,7 @@
+-    df_summary = summarize_chatter_cases_sql(str(plate_number))
++    df_summary = summarize_chatter_cases_sql(int(plate_number))
+@@ -116,7 +134,8 @@
+-def filter_unique_gcodes(df, signal_column='Signal', gcode_column='HFBlockEvent_GCode', sort_column='Time'):
++def filter_unique_gcodes(df, signal_column='Signal', gcode_column='GCode_Label', sort_column='Time'):
+@@ -128,7 +147,8 @@
+-        Der Name der Spalte, die die GCode-Daten enthält (default ist 'HFBlockEvent_GCode').
++        Der Name der Spalte, die die GCode-Daten enthält (default ist 'GCode_Label',
++        zusammengesetzt aus NcCode + ' ; ' + NcComment durch `get_axiswise_plot_df`).
+@@ -286,10 +322,11 @@
+-    Alle anderen Daten (z. B. LF_Data, Oscilloscope) bleiben unverändert erhalten.
++    Alle anderen Daten (z. B. LF_Data, ET200_Data) bleiben unverändert erhalten.
+@@ -400,7 +438,7 @@
+-        Original long-format dataframe (e.g. HF_Data or Oscilloscope data).
++        Original long-format dataframe (e.g. HF_Data or ET200_Data).
+@@ -410,7 +448,7 @@
+-        Filter by DataOrigin (e.g., "HF_Data", "Oscilloscope").
++        Filter by DataOrigin (e.g., "HF_Data", "ET200_Data").
+@@ -546,11 +584,13 @@
+-    target_origin='Oscilloscope',
++    target_origin='ET200_Data',
+@@ -563,7 +603,7 @@
+-    # - Single table with columns incl. Platte (VARCHAR) + Nut (DOUBLE)
++    # - Single table with columns incl. Platte (INTEGER) + Nut (INTEGER)
+@@ -631,7 +671,7 @@
+-        str(platte),
++        int(platte),
+@@ -642,12 +682,14 @@
+-    target_origin='Oscilloscope',
++    target_origin='ET200_Data',
+@@ -735,13 +777,13 @@
+-        str(platte),
++        int(platte),
+-        str(platte),
++        int(platte),
+
+--- a/oxford_notebook/src/loader.py
++++ b/oxford_notebook/src/loader.py
+@@ -245,7 +273,7 @@
+-          - Werkzeug (signal actToolIdent[u1,1], Value_String)
++          - Werkzeug (signal actToolIdent[u1], Value_String)
+@@ -269,11 +297,17 @@
+-                MIN(CASE WHEN Signal = 'actToolIdent[u1,1]' THEN Value_String END) AS Werkzeug
++                MIN(CASE WHEN Signal = 'actToolIdent[u1]' THEN Value_String END) AS Werkzeug
++                'actToolIdent[u1]'
+@@ -357,6 +391,7 @@
++            "WCS_Source",
+@@ -364,14 +399,35 @@
+-            "HFBlockEvent_GCode",
+-            "HFProbeCounter",
++            "Label",
++            "NcCode",
++            "NcComment",
++            "IpoGC",
++            "Cycle",
+-        select_clause = ", ".join(fields)
++        select_parts = list(fields)
++        # Labels for plot annotations
++        if "NcCode" in self._valid_cols:
++            if "NcComment" in self._valid_cols:
++                select_parts.append(
++                    "CASE WHEN NcComment IS NOT NULL AND NcComment <> '' "
++                    "THEN NcCode || ' ; ' || NcComment ELSE NcCode END AS GCode_Label"
++                )
++            else:
++                select_parts.append("NcCode AS GCode_Label")
++        # Labels and Descriptions for signals
++        name_sources = [c for c in ("Label", "Description") if c in self._valid_cols]
++        if name_sources and "Signal" in self._valid_cols:
++            coalesced = ", ".join(name_sources + ["Signal"])
++            select_parts.append(f"COALESCE({coalesced}) AS Signal_Label")
++        select_clause = ", ".join(select_parts)
+
+--- a/oxford_notebook/src/provider.py
++++ b/oxford_notebook/src/provider.py
+@@ -180,7 +190,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -198,7 +208,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -206,7 +216,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -214,7 +224,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -266,7 +276,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -276,7 +286,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+@@ -313,7 +323,7 @@
+-    plate = str(plate)
++    plate = int(plate)
+
+--- a/oxford_notebook/viz/visualizer.py
++++ b/oxford_notebook/viz/visualizer.py
+@@ -39,7 +53,7 @@
+-        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'HFBlockEvent_GCode').
++        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'GCode_Label').
+@@ -53,7 +67,7 @@
+-    >>> add_gcode_vrects(fig, df_GCode, df, time_column='Duration_Seconds', gcode_column='HFBlockEvent_GCode', color1="green", color2="blue")
++    >>> add_gcode_vrects(fig, df_GCode, df, time_column='Duration_Seconds', gcode_column='GCode_Label', color1="green", color2="blue")
+@@ -95,7 +110,7 @@
+-        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'HFBlockEvent_GCode').
++        Der Name der Spalte, die die GCode-Werte enthält (z.B. 'GCode_Label').
+@@ -195,11 +210,11 @@
+-            'Description': True, 
+-            'HFBlockEvent_GCode': True, 
+-            'HFProbeCounter': True
++            'Signal_Label': True,
++            'GCode_Label': True,
++            'Cycle': True
+@@ -250,112 +265,17 @@
+-            add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='HFBlockEvent_GCode', 
++            add_gcode_vrects(fig, df_GCode, _df, time_column=x_column, gcode_column='GCode_Label',
+-            add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='HFBlockEvent_GCode')
++            add_gcode_vlines(fig, df_GCode, time_column=x_column, gcode_column='GCode_Label')
+@@ -580,7 +505,7 @@
+-    gcode_column='HFBlockEvent_GCode',
++    gcode_column='GCode_Label',
+@@ -607,13 +542,15 @@
+-            'Description': True,
++            'Signal_Label': True,
+-            'HFBlockEvent_GCode': True,
+-            'HFProbeCounter': True
++            'GCode_Label': True,
++            'Cycle': True
+
+--- a/oxford_notebook/viz/widgets.py
++++ b/oxford_notebook/viz/widgets.py
+@@ -359,7 +381,7 @@
+-                    target_origin="Oscilloscope",
++                    target_origin="ET200_Data",
+@@ -497,7 +520,7 @@
+-                    external_df = _pick_frame(plot_sources, "Oscilloscope", "external")
++                    external_df = _pick_frame(plot_sources, "ET200_Data", "ET200", "external")
+@@ -570,7 +593,7 @@
+-                        df[df['DataOrigin'] == 'Oscilloscope'] if 'DataOrigin' in df.columns else df,
++                        df[df['DataOrigin'] == 'ET200_Data'] if 'DataOrigin' in df.columns else df,
