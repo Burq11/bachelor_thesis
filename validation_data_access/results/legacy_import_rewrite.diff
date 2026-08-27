@@ -1,0 +1,147 @@
+# Import-path rewrites applied to the vendored legacy tree.
+#
+# 12 import statements in 4 files, and nothing else:
+#     from src...  ->  from validation_data_access.legacy.Oxford.src...
+#     from viz...  ->  from validation_data_access.legacy.Oxford.viz...
+#
+#   config/preamble.py            1
+#   src/data_processing.py        1
+#   viz/visualizer.py             5
+#   viz/widgets_digital_twin.py   5
+#
+# Three further files appear below as rename-only entries with no content change
+# (src/__init__.py, viz/__init__.py, viz/IWF_template.py): commit 5ad34b3 moved the whole
+# tree from oxford_notebook/validation_data_access/ up to the repository root, so both the
+# old and the new path must be given for git to match the files across that move.
+#
+# Regenerate with:
+#   git diff 2ef48cc HEAD -M -- \
+#     'oxford_notebook/validation_data_access/legacy/Oxford/**/*.py' \
+#     'validation_data_access/legacy/Oxford/**/*.py'
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/config/preamble.py b/validation_data_access/legacy/Oxford/config/preamble.py
+similarity index 90%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/config/preamble.py
+rename to validation_data_access/legacy/Oxford/config/preamble.py
+index 0d9de03..2950661 100644
+--- a/oxford_notebook/validation_data_access/legacy/Oxford/config/preamble.py
++++ b/validation_data_access/legacy/Oxford/config/preamble.py
+@@ -21,7 +21,7 @@ if str(project_root) not in sys.path:
+ # === Plotly-Konfiguration ===
+ pio.templates.default = "plotly_dark"
+ 
+-from viz import IWF_template
++from validation_data_access.legacy.Oxford.viz import IWF_template
+ IWF_template.register_templates()
+ 
+ # === Anzeigeoptionen & Warnungen ===
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/src/__init__.py b/validation_data_access/legacy/Oxford/src/__init__.py
+similarity index 100%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/src/__init__.py
+rename to validation_data_access/legacy/Oxford/src/__init__.py
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/src/data_processing.py b/validation_data_access/legacy/Oxford/src/data_processing.py
+similarity index 99%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/src/data_processing.py
+rename to validation_data_access/legacy/Oxford/src/data_processing.py
+index 93c6005..e678d12 100644
+--- a/oxford_notebook/validation_data_access/legacy/Oxford/src/data_processing.py
++++ b/validation_data_access/legacy/Oxford/src/data_processing.py
+@@ -484,7 +484,7 @@ def analyze_platte_heatmap(platte_nummer, processed_path, summarize_fn, plot_fn)
+     
+     # Get slot-position summary if possible
+     try:
+-        from src.data_processing import summarize_chatter_cases, analyze_platte
++        from validation_data_access.legacy.Oxford.src.data_processing import summarize_chatter_cases, analyze_platte
+         df_summary, _ = analyze_platte(platte_nummer, processed_path, summarize_chatter_cases, lambda x: None)
+     except Exception as e:
+         print(f"Could not compute df_summary: {e}")
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/viz/IWF_template.py b/validation_data_access/legacy/Oxford/viz/IWF_template.py
+similarity index 100%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/viz/IWF_template.py
+rename to validation_data_access/legacy/Oxford/viz/IWF_template.py
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/viz/__init__.py b/validation_data_access/legacy/Oxford/viz/__init__.py
+similarity index 100%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/viz/__init__.py
+rename to validation_data_access/legacy/Oxford/viz/__init__.py
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/viz/visualizer.py b/validation_data_access/legacy/Oxford/viz/visualizer.py
+similarity index 99%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/viz/visualizer.py
+rename to validation_data_access/legacy/Oxford/viz/visualizer.py
+index 5ca2987..3c83b4a 100644
+--- a/oxford_notebook/validation_data_access/legacy/Oxford/viz/visualizer.py
++++ b/validation_data_access/legacy/Oxford/viz/visualizer.py
+@@ -4,7 +4,7 @@ import numpy as np
+ import pandas as pd
+ import plotly.express as px
+ import plotly.graph_objects as go
+-from src.data_processing import filter_unique_gcodes
++from validation_data_access.legacy.Oxford.src.data_processing import filter_unique_gcodes
+ 
+ def add_gcode_vrects(fig, df_GCode, df, time_column, gcode_column, color1="white", color2=None):
+     """
+@@ -348,7 +348,7 @@ def create_plot_with_gcode_annotations(df,
+ #         display(out)
+ 
+ import plotly.graph_objects as go
+-from viz import IWF_template
++from validation_data_access.legacy.Oxford.viz import IWF_template
+ 
+ 
+ def plot_digital_twin_segmented(df_summary, nut_width=5.0):
+@@ -793,7 +793,7 @@ def plot_digital_twin_heatmap_gradient(
+ 
+     import numpy as np
+     import plotly.graph_objects as go
+-    from viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
++    from validation_data_access.legacy.Oxford.viz.IWF_template import FraunhoferColors, PTZ_colors, IWF_Red_Fade
+ 
+     # Empty fallbacks
+     if df_heatmap.empty:
+@@ -1177,7 +1177,7 @@ import numpy as np
+ import plotly.graph_objects as go
+ import plotly.io as pio
+ from scipy.cluster.hierarchy import linkage, leaves_list
+-from viz.IWF_template import register_templates, IWF_Red_Fade
++from validation_data_access.legacy.Oxford.viz.IWF_template import register_templates, IWF_Red_Fade
+ 
+ 
+ def plot_correlation_blocks_IWF(df_wide):
+@@ -1256,7 +1256,7 @@ import numpy as np
+ import plotly.graph_objects as go
+ import plotly.io as pio
+ from plotly.colors import sample_colorscale
+-from viz.IWF_template import (
++from validation_data_access.legacy.Oxford.viz.IWF_template import (
+     register_templates,
+     PTZ_colors,
+     FraunhoferColors,
+diff --git a/oxford_notebook/validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py b/validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py
+similarity index 97%
+rename from oxford_notebook/validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py
+rename to validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py
+index e9c176a..010c8de 100644
+--- a/oxford_notebook/validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py
++++ b/validation_data_access/legacy/Oxford/viz/widgets_digital_twin.py
+@@ -161,9 +161,9 @@ def show_plate_widget(processed_path, plate_state=None):
+     plate_state : dict, optional
+         Optionaler Zustand, in dem platte, df_summary und fig gespeichert werden.
+     """
+-    from src.data_processing import summarize_chatter_cases, analyze_platte
+-    from viz.visualizer import plot_digital_twin_segmented
+-    from viz.widgets_digital_twin import show_plattenauswahl_widget
++    from validation_data_access.legacy.Oxford.src.data_processing import summarize_chatter_cases, analyze_platte
++    from validation_data_access.legacy.Oxford.viz.visualizer import plot_digital_twin_segmented
++    from validation_data_access.legacy.Oxford.viz.widgets_digital_twin import show_plattenauswahl_widget
+ 
+     show_plattenauswahl_widget(
+         processed_path=processed_path,
+@@ -352,8 +352,8 @@ def show_heatmap_widget(processed_path, heatmap_state=None):
+             print(f"Creating heatmap for Plate {platte} with bin size {bin_size_mm} mm...")
+     
+             try:
+-                from src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
+-                from viz.visualizer import plot_digital_twin_heatmap_gradient
++                from validation_data_access.legacy.Oxford.src.data_processing import prepare_equal_bins_heatmap, analyze_platte, summarize_chatter_cases
++                from validation_data_access.legacy.Oxford.viz.visualizer import plot_digital_twin_heatmap_gradient
+     
+                 parquet_files = sorted(processed_path.glob(f"Platte_{platte}_*Nut_*.parquet"))
+                 if not parquet_files:
