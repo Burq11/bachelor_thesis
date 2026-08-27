@@ -4,7 +4,7 @@ plate,slot,variant,axes,identical,differing_by_sampling_only,statistics_differin
 22,3,all points,7,7,0,-
 22,3,"downsampled to 10,000",7,7,0,-
 24,8,all points,7,7,0,-
-24,8,"downsampled to 10,000",7,7,0,-
+24,8,"downsampled to 10,000",7,5,2,y.mean
 25,15,all points,7,7,0,-
 25,15,"downsampled to 10,000",7,7,0,-
 26,20,all points,7,7,0,-

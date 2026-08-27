@@ -344,11 +344,20 @@ class DuckDBLoader:
         wcs_max: Optional[float] = None,
         order_by: str = "Time",
         limit: Optional[int] = None,
+        max_points_per_signal: Optional[int] = None,
     ) -> pd.DataFrame:
         """
         Lightweight query for axiswise plotting (External/HF/LF in one DataFrame).
 
         Returns only columns needed by create_axiswise_plots2 + optional hover fields.
+
+        `max_points_per_signal`, when set, reduces each (Nut, Signal) group to
+        approximately that many rows *inside the query*, using every-kth-row selection
+        via ROW_NUMBER(). This is not bit-identical to the client-side np.linspace
+        downsampling in viz/visualizer.py's downsample_df -- it is a different sample of
+        the same underlying signal, so a downstream equivalence check must compare
+        visual/statistical equivalence (point count, min, max, mean per axis), not
+        row-level equality. See validation_data_access/ for that comparison.
         """
 
         required_cols = [
@@ -373,26 +382,54 @@ class DuckDBLoader:
             raise InvalidColumnError("No plot columns found in schema.")
         select_clause = ", ".join(fields)
 
+        if max_points_per_signal is not None and limit is not None:
+            raise ValueError(
+                "max_points_per_signal and limit cannot both be set: limit truncates "
+                "the result, max_points_per_signal samples it -- combining them is not "
+                "a defined operation."
+            )
+
         specs = self._filter_specs(
             plate, slot, data_origin=data_origin, signals=signals,
             wcs_min=wcs_min, wcs_max=wcs_max,
             extra=[("Value IS NOT NULL", None, "Value IS NOT NULL", [])])
         where_sql, params = self._where_sql(specs)
 
-        query = f"""
+        base_query = f"""
             SELECT {select_clause}
             FROM {self.table_name}
             WHERE {where_sql}
         """
 
-        if order_by in self._valid_cols:
-            query += f" ORDER BY {order_by}"
-        elif "Time" in self._valid_cols:
-            query += " ORDER BY Time"
+        if max_points_per_signal is None:
+            query = base_query
 
-        if limit is not None:
-            query += " LIMIT ?"
-            params.append(limit)
+            if order_by in self._valid_cols:
+                query += f" ORDER BY {order_by}"
+            elif "Time" in self._valid_cols:
+                query += " ORDER BY Time"
+
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+        else:
+            # `//` (integer division) is required here: DuckDB's `/` yields a DOUBLE, and
+            # `rn % <fractional step> = 0` silently keeps the wrong rows -- or none at all
+            # when the step is just above 1.0 -- which surfaces as a bogus "empty result".
+            query = f"""
+                WITH filtered AS ({base_query}),
+                     numbered AS (
+                         SELECT *,
+                                ROW_NUMBER() OVER (PARTITION BY Nut, Signal ORDER BY Time) AS rn,
+                                COUNT(*)     OVER (PARTITION BY Nut, Signal)               AS n
+                         FROM filtered
+                     )
+                SELECT * EXCLUDE (rn, n)
+                FROM numbered
+                WHERE rn % GREATEST(1, n // ?) = 0
+                ORDER BY Time
+            """
+            params.append(max_points_per_signal)
 
         df = self.query_df(query, params)
 

@@ -64,6 +64,9 @@ TARGETED_QUERY_AXIS = {
 #: Data origin used for the axis-wise plots.
 PLOT_ORIGIN = "HF_Data"
 
+#: Matches viz/visualizer.py's max_display_points default.
+MAX_DISPLAY_POINTS = 10_000
+
 #: Plate used for the rendered-figure comparison; 
 FIGURE_PLATE = "26"
 
@@ -823,6 +826,18 @@ def _new_plot_df(**p) -> tuple[int, int]:
     return len(df), len(df)
 
 
+def _new_plot_df_pushed_down(**p) -> tuple[int, int]:
+    from src import provider
+
+    df = provider.axiswise_plot_df(
+        p["plate"], p["slot"], data_origin=p["data_origin"],
+        max_points_per_signal=p.get("max_points_per_signal", MAX_DISPLAY_POINTS),
+    )
+    # Reduction happened in the engine, so rows materialised in Python == rows returned,
+    # same convention as every other "new_*" workload in this table.
+    return len(df), len(df)
+
+
 def _legacy_plate_rows(plate) -> int:
     import pyarrow.parquet as pq
 
@@ -852,6 +867,7 @@ WORKLOADS: dict[str, Callable[..., tuple[int, int]]] = {
     "new_targeted_query_axis": _new_targeted_query_axis,
     "legacy_plot_df": _legacy_plot_df,
     "new_plot_df": _new_plot_df,
+    "new_plot_df_pushed_down": _new_plot_df_pushed_down,
     "legacy_heatmap": _legacy_heatmap,
     "new_heatmap": _new_heatmap,
 }

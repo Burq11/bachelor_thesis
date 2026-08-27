@@ -1,6 +1,6 @@
 check,passed,detail
 "filtering: whole slot, all columns",True,"5,910,650 rows over 7 slots"
 filtering: narrow query,True,1512 rows returned by both
-heatmap: bins and colour anchors,True,"1843 bins over 7 plates, max |diff| 1.8e-15"
-plots: axis-wise,True,all 49 axes identical with every point plotted; 9 differ in y.mean only after downsampling
+heatmap: bins and colour anchors,True,"1843 bins over 7 plates, max |diff| 2.2e-15"
+plots: axis-wise,True,all 49 axes identical with every point plotted; 11 differ in y.mean only after downsampling
 plots: rendered heatmap,True,"trace data identical; iso-lines re-encoded as SVG paths, same geometry"

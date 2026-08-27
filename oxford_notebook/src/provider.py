@@ -312,6 +312,7 @@ def axiswise_plot_df(
     wcs_max: float | None = None,
     order_by: str = "Time",
     limit: int | None = None,
+    max_points_per_signal: int | None = None,
 ) -> pd.DataFrame:
     plate = str(plate)
     return _client_call(
@@ -324,6 +325,7 @@ def axiswise_plot_df(
             wcs_max=wcs_max,
             order_by=order_by,
             limit=limit,
+            max_points_per_signal=max_points_per_signal,
         ),
         empty_return=pd.DataFrame(),
         hint="Check plate/slot and schema via provider.plates(), provider.slots(), provider.schema().",
