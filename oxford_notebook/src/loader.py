@@ -276,7 +276,7 @@ class DuckDBLoader:
           - Werkzeug (signal actToolIdent[u1], Value_String)
         """
 
-        metadata_signals = ["R319", "R321", "R330", "actToolRadius[u1]", "actToolIdent[u1,1]"]
+        metadata_signals = ["R319", "R321", "R330", "actToolRadius[u1]", "actToolIdent[u1]"]
         placeholders = ", ".join(["?"] * len(metadata_signals))
 
         # The signal list and "Nut IS NOT NULL" are structural, not user filters, but they
@@ -299,15 +299,9 @@ class DuckDBLoader:
                 MIN(CASE WHEN Signal = 'R330' THEN Value END) AS Drehzahl,
                 MIN(CASE WHEN Signal = 'actToolIdent[u1]' THEN Value_String END) AS Werkzeug
             FROM {self.table_name}
-            WHERE Platte = ?
-              AND Nut IS NOT NULL
-              AND Signal IN (
-                'R319',
-                'R321',
-                'R330',
-                'actToolRadius[u1]',
-                'actToolIdent[u1]'
-              )
+            WHERE {where_sql}
+            GROUP BY Nut
+            ORDER BY Nut
         """
 
         df = self.query_df(query, params)
