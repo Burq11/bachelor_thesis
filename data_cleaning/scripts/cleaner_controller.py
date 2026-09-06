@@ -185,7 +185,7 @@ def clean_one_recording(recording_dir):
 
 
 def build_database(base_directory):
-    p = Path("/home/dev/cleanup/data/interim")
+    p = Path("../data/interim")
 
     if not p.is_dir():
         raise NotFoundError("Interim-Verzeichnis existiert nicht: %s" % p, p)
@@ -197,7 +197,7 @@ def build_database(base_directory):
         )
 
     try:
-        con = duckdb.connect('/home/dev/cleanup/data/processed/duckdb.duckdb')
+        con = duckdb.connect('../data/processed/duckdb.duckdb')
     except duckdb.Error as e:
         raise DatabaseError("Verbindung zur DuckDB fehlgeschlagen: %s" % e)
 

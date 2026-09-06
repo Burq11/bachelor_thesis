@@ -5,7 +5,7 @@ import questionary
 import cleaner_controller as cleaner_controller
 
 if __name__ == "__main__":
-    parent_directory = "/home/dev/cleanup/data/raw"
+    parent_directory = "../data/raw"
     CANCEL_OPTION = "Abbrechen"
     
     if not os.path.exists(parent_directory):

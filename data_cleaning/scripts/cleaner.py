@@ -379,10 +379,6 @@ def process_machine_data(meta_json_path: str, hf_parquet_path: str, lf_parquet_p
         os.remove(temp_db_path)
     except OSError:
         pass
-
-    print(df_hf_events.filter(pl.col("Signal") == "HF_EVENT|NcComment")["Cycle"].max(),
-        df_HF.filter(pl.col("DataOrigin") == "HF_Data")["Cycle"].max())
-
  
     return df_HF, df_LF
 
@@ -506,10 +502,10 @@ def calculate_wcs(
         pos, on="Time", strategy="nearest", tolerance=tolerance
     )
  
-    n_null = out.filter(pl.col("DataOrigin") != "ET200_Data")[new_column].null_count()
-    if n_null:
-        print(f"{new_column}: {n_null:,} von {out.height:,} Zeilen ohne Zuordnung "
-              f"(Toleranz {tolerance} zu klein?)")
+    # n_null = out.filter(pl.col("DataOrigin") != "ET200_Data")[new_column].null_count()
+    # if n_null:
+        # print(f"{new_column}: {n_null:,} von {out.height:,} Zeilen ohne Zuordnung "
+        #       f"(Toleranz {tolerance} zu klein?)")
     return out
 
 
@@ -612,14 +608,14 @@ def cleaner(
     session_dir = os.path.dirname(recording_dir)
     meta_json_path = os.path.join(session_dir, "metadata.json")
  
-    output_parquet_path = f"./interim/cleaned_data_{platte}_{nut}.parquet"
+    output_parquet_path = f"../data/interim/cleaned_data_{platte}_{nut}.parquet"
  
     if os.path.exists(output_parquet_path) and not overwrite:
         print(f"Überspringe (bereits vorhanden): {recording_dir}")
         return output_parquet_path, recording_dir
  
-    hf_meta_excel = "./HFmeta_insight_hub.xlsx"
-    lf_meta_csv = "./LF_variables_readable.csv"
+    hf_meta_excel = "../data/added_data/HFmeta_insight_hub.xlsx"
+    lf_meta_csv = "../data/added_data/LF_variables_readable.csv"
  
     if not os.path.exists(hf_parquet_path) or not os.path.exists(lf_parquet_path):
         return None, recording_dir
