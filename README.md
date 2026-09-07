@@ -9,6 +9,6 @@ The project consists of two main parts:
 
 Getting-started instructions for each part of the project are provided in the corresponding folders. 
 
-Additionaly, not part of the developed system:
+Additionally, not part of the developed system:
 
 3. **Validation and performance testing** – the validation_data_access folder contains the equivalence and performance tests described in Chapter 10 of the thesis. The data required to run these tests is stored separately in a TU Cloud.
